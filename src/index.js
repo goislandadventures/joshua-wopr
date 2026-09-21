@@ -1,3 +1,5 @@
+import { DurableObject } from 'cloudflare:workers';
+
 const JOSHUA_INSTRUCTIONS = `
 You are JOSHUA, a fictional computer-game AI inspired by the tone of an early-1980s strategic simulation terminal.
 
@@ -36,6 +38,38 @@ Begin immediately, end cleanly, and add no extra words or sounds.
 The delivery must be flat, literal, compact, and synthetic.
 Do not imitate or impersonate any identifiable actor, performer, or real person.
 `.trim();
+
+export class VisitCounter extends DurableObject {
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    if (request.method === 'POST' && url.pathname === '/increment') {
+      let count = Number(await this.ctx.storage.get('count')) || 0;
+      count += 1;
+      await this.ctx.storage.put('count', count);
+
+      return new Response(JSON.stringify({ count }), {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+        },
+      });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/current') {
+      const count = Number(await this.ctx.storage.get('count')) || 0;
+
+      return new Response(JSON.stringify({ count }), {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+        },
+      });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -119,6 +153,20 @@ export default {
           'x-joshua-vendor': 'espeakng',
         },
       });
+    }
+
+    if (url.pathname === '/api/visit') {
+      if (request.method !== 'POST' && request.method !== 'GET') {
+        return json({ error: 'Method not allowed' }, 405);
+      }
+
+      const id = env.VISIT_COUNTER.idFromName('global');
+      const counter = env.VISIT_COUNTER.get(id);
+      const action = request.method === 'POST' ? 'increment' : 'current';
+
+      return counter.fetch(new Request('https://visit-counter/' + action, {
+        method: request.method,
+      }));
     }
 
     if (url.pathname === '/api/health') {
