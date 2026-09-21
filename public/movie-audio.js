@@ -13,9 +13,14 @@
     ['YOU ARE A HARD MAN TO REACH', 259739],
   ]);
 
-  const bufferCache = new Map();
-  let currentMovieSource = null;
-  let currentMovieDone = Promise.resolve();
+  // Tiny silent WAV used only to authorize this one media element during
+  // the user's valid JOSHUA submission. It is not a movie clip preload.
+  const SILENT_WAV =
+    'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+
+  let movieAudio = null;
+  let movieDone = Promise.resolve();
+  let armedForSession = false;
 
   function normalizeMovieLine(text) {
     return String(text || '')
@@ -30,33 +35,22 @@
     return MOVIE_LINES.get(normalizeMovieLine(text)) || null;
   }
 
-  async function getMovieBuffer(id) {
-    if (bufferCache.has(id)) return bufferCache.get(id);
+  function ensureMovieElement() {
+    if (movieAudio) return movieAudio;
 
-    await unlockAudio();
-    const ctx = state.audioContext;
-    if (!ctx || ctx.state !== 'running') throw new Error('AUDIO CONTEXT UNAVAILABLE');
-
-    const response = await fetch('/api/movie-sound?id=' + encodeURIComponent(id), {
-      cache: 'no-store',
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error('MOVIE SOUND HTTP ' + response.status + (detail ? ': ' + detail.slice(0, 160) : ''));
-    }
-
-    const bytes = await response.arrayBuffer();
-    const buffer = await ctx.decodeAudioData(bytes.slice(0));
-    bufferCache.set(id, buffer);
-    return buffer;
+    movieAudio = new Audio();
+    movieAudio.preload = 'auto';
+    movieAudio.volume = 1;
+    movieAudio.playsInline = true;
+    return movieAudio;
   }
 
   function stopMovieAudio() {
-    if (!currentMovieSource) return;
-    try { currentMovieSource.stop(); } catch (_) {}
-    try { currentMovieSource.disconnect(); } catch (_) {}
-    currentMovieSource = null;
+    if (!movieAudio) return;
+    try {
+      movieAudio.pause();
+      movieAudio.currentTime = 0;
+    } catch (_) {}
     window.__joshuaMovieAudioActive = false;
   }
 
@@ -66,82 +60,99 @@
     } catch (_) {}
   }
 
+  // Call synchronously from the valid JOSHUA form submission only.
+  window.__joshuaArmMovieAudioForLogin = function armMovieAudioForLogin() {
+    const audio = ensureMovieElement();
+    armedForSession = true;
+
+    try {
+      audio.pause();
+      audio.src = SILENT_WAV;
+      audio.muted = true;
+      audio.currentTime = 0;
+
+      const p = audio.play();
+      if (p?.then) {
+        p.then(() => {
+          try { audio.pause(); } catch (_) {}
+          audio.muted = false;
+        }).catch(() => {
+          audio.muted = false;
+        });
+      } else {
+        audio.muted = false;
+      }
+    } catch (_) {
+      audio.muted = false;
+    }
+  };
+
+  window.__joshuaResetMovieAudioSession = function resetMovieAudioSession() {
+    stopMovieAudio();
+    armedForSession = false;
+  };
+
   async function playMovieSound(id) {
     stopSyntheticVoice();
+
+    const audio = ensureMovieElement();
     stopMovieAudio();
 
-    const buffer = await getMovieBuffer(id);
-    const ctx = state.audioContext;
-    if (!ctx || ctx.state !== 'running') throw new Error('AUDIO CONTEXT UNAVAILABLE');
+    // A valid JOSHUA login arms this element. For later sessions or browsers
+    // that permit media after interaction, playback is still attempted normally.
+    audio.muted = false;
+    audio.src = '/api/movie-sound-play?id=' + encodeURIComponent(id);
+    audio.load();
 
-    const source = ctx.createBufferSource();
-    const gain = ctx.createGain();
-    source.buffer = buffer;
-    gain.gain.value = 1.0;
-
-    source.connect(gain);
-    gain.connect(ctx.destination);
-
-    currentMovieSource = source;
     window.__joshuaMovieAudioActive = true;
 
-    currentMovieDone = new Promise(resolve => {
-      source.onended = () => {
-        if (currentMovieSource === source) currentMovieSource = null;
+    movieDone = new Promise(resolve => {
+      const finish = () => {
         window.__joshuaMovieAudioActive = false;
+        audio.removeEventListener('ended', finish);
+        audio.removeEventListener('error', finish);
+        audio.removeEventListener('abort', finish);
         resolve();
       };
+
+      audio.addEventListener('ended', finish, { once: true });
+      audio.addEventListener('error', finish, { once: true });
+      audio.addEventListener('abort', finish, { once: true });
     });
 
-    source.start();
-    return currentMovieDone;
+    try {
+      await audio.play();
+      window.__joshuaMovieAudioStatus = {
+        ok: true,
+        id,
+        armed: armedForSession,
+        error: null,
+      };
+    } catch (error) {
+      window.__joshuaMovieAudioActive = false;
+      window.__joshuaMovieAudioStatus = {
+        ok: false,
+        id,
+        armed: armedForSession,
+        error: error?.message || 'MOVIE AUDIO PLAYBACK FAILED',
+      };
+      console.error('JOSHUA MOVIE AUDIO:', window.__joshuaMovieAudioStatus);
+    }
+
+    return movieDone;
   }
 
   window.__joshuaWaitForMovieAudio = async function waitForMovieAudio() {
-    try { await currentMovieDone; } catch (_) {}
+    try { await movieDone; } catch (_) {}
   };
 
   window.__joshuaMovieSoundIdForText = getMovieSoundId;
-
-  async function preloadMovieSound(id) {
-    try {
-      await getMovieBuffer(id);
-      window.__joshuaMovieAudioPreload = { ok: true, id, error: null };
-    } catch (error) {
-      window.__joshuaMovieAudioPreload = {
-        ok: false,
-        id,
-        error: error?.message || 'MOVIE PRELOAD FAILED',
-      };
-      console.error('JOSHUA MOVIE PRELOAD:', window.__joshuaMovieAudioPreload);
-    }
-  }
-
-  document.addEventListener('keydown', () => {
-    void preloadMovieSound(259743); // GREETINGS PROFESSOR FALKEN
-    void preloadMovieSound(259734); // SHALL WE PLAY A GAME
-  }, { once: true, capture: true });
-
-  document.addEventListener('pointerdown', () => {
-    void preloadMovieSound(259743);
-    void preloadMovieSound(259734);
-  }, { once: true, capture: true });
 
   async function playJoshuaSpeech(text) {
     const movieId = getMovieSoundId(text);
 
     if (movieId) {
-      try {
-        await playMovieSound(movieId);
-        window.__joshuaMovieAudioStatus = { ok: true, id: movieId, error: null };
-      } catch (error) {
-        window.__joshuaMovieAudioStatus = {
-          ok: false,
-          id: movieId,
-          error: error?.message || 'MOVIE AUDIO FAILED',
-        };
-        console.error('JOSHUA MOVIE AUDIO:', window.__joshuaMovieAudioStatus);
-      }
+      await playMovieSound(movieId);
       return 'movie';
     }
 
