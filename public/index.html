@@ -3,84 +3,111 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#080808" />
-  <title>WOPR</title>
+  <meta name="theme-color" content="#020603" />
+  <title>JOSHUA // WOPR</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <main class="stage">
-    <section class="monitor" aria-label="WOPR terminal">
-      <div class="glass">
-        <div class="raster" aria-hidden="true"></div>
-        <div class="vignette" aria-hidden="true"></div>
+  <main class="console-shell" aria-label="JOSHUA terminal simulator">
+    <section class="console-frame">
+      <div class="console-bezel">
+        <header class="statusbar">
+          <span>WOPR // JOSHUA</span>
+          <span id="status">SYSTEM READY</span>
+        </header>
 
-        <section class="screen">
-          <div id="terminal" class="terminal" role="log" aria-live="polite"></div>
+        <div class="crt" id="crt">
+          <div class="scanlines" aria-hidden="true"></div>
+          <div class="glow" aria-hidden="true"></div>
 
-          <form id="command-form" class="input-row" autocomplete="off">
-            <span id="prompt" class="prompt">LOGON:</span>
-            <span class="input-wrap">
-              <input
-                id="command"
-                aria-label="Terminal input"
-                spellcheck="false"
-                autocapitalize="off"
-                autocomplete="off"
-                autofocus
-              />
-              <span class="block-cursor" aria-hidden="true"></span>
-            </span>
-          </form>
+          <section class="display">
+            <div id="terminal" class="terminal" role="log" aria-live="polite"></div>
 
-          <section id="ttt-panel" class="ttt-panel hidden" aria-label="Tic-Tac-Toe board">
-            <div id="ttt-board" class="ttt-board"></div>
-            <div id="ttt-status" class="ttt-status"></div>
+            <section id="sim-panel" class="sim-panel hidden" aria-label="Global Thermonuclear War simulation">
+              <div class="sim-header">
+                <span>GLOBAL THERMONUCLEAR WAR</span>
+                <span id="sim-round">SIMULATION 000</span>
+              </div>
+
+              <div id="sim-side-screen" class="side-screen">
+                <div class="choice-grid">
+                  <article class="choice-card" data-side-card="UNITED STATES">
+                    <h3>1. UNITED STATES</h3>
+                    <svg class="choice-svg" viewBox="0 0 300 170" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                      <path d="M32 38 L57 26 L85 22 L118 24 L154 23 L175 18 L188 27 L207 29 L223 42 L229 56 L222 72 L228 84 L214 93 L198 91 L184 98 L162 101 L142 110 L118 112 L103 124 L82 124 L61 114 L50 102 L36 96 L31 80 L39 67 L29 54 Z" />
+                      <path d="M231 107 L244 107 L251 114 L245 123 L233 123 Z" />
+                    </svg>
+                  </article>
+
+                  <article class="choice-card" data-side-card="SOVIET UNION">
+                    <h3>2. SOVIET UNION</h3>
+                    <svg class="choice-svg" viewBox="0 0 300 170" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                      <path d="M18 54 L42 40 L72 36 L105 22 L137 23 L154 33 L181 31 L208 27 L239 35 L268 44 L282 59 L275 71 L258 76 L246 87 L222 86 L206 95 L182 93 L167 103 L138 104 L121 114 L97 111 L76 118 L52 112 L39 96 L19 92 L14 75 Z" />
+                      <path d="M250 83 L261 83 L267 91 L257 100 L247 97 Z" />
+                    </svg>
+                  </article>
+                </div>
+
+                <div class="side-meta">
+                  <span id="side-prompt">PLEASE CHOOSE ONE</span>
+                  <span>SIDE <b id="side-choice">--</b></span>
+                  <span>TARGETS <b id="target-summary">AWAITING SIDE SELECTION</b></span>
+                </div>
+              </div>
+
+              <div id="sim-map-screen" class="map-screen hidden">
+                <div class="map" aria-hidden="true">
+                  <svg viewBox="0 0 1000 460" preserveAspectRatio="none">
+                    <g class="grid">
+                      <path d="M0 76H1000M0 152H1000M0 228H1000M0 304H1000M0 380H1000" />
+                      <path d="M125 0V460M250 0V460M375 0V460M500 0V460M625 0V460M750 0V460M875 0V460" />
+                    </g>
+
+                    <g class="world-outline">
+                      <polyline points="48,108 70,78 112,58 167,49 205,59 237,80 243,99 231,113 203,120 189,137 161,145 132,142 105,153 90,172 70,172 56,159 43,136 36,119 48,108" />
+                      <polyline points="192,182 214,199 228,228 222,262 208,292 194,336 177,318 169,280 170,240 180,202 192,182" />
+                      <polyline points="434,99 454,81 489,74 518,79 540,93 553,106 568,100 580,92 605,93 620,101 636,103 649,94 683,95 721,101 757,95 800,106 839,121 873,143 889,167 886,183 870,185 849,177 821,181 790,190 762,193 742,186 727,195 697,197 671,185 641,183 624,194 593,202 563,193 544,181 522,180 504,165 482,158 461,142 446,128 434,99" />
+                      <polyline points="525,202 548,214 568,238 577,262 572,287 558,314 545,340 531,324 520,298 513,267 516,238 525,202" />
+                      <polyline points="844,280 874,274 903,285 930,307 920,327 892,332 865,330 848,312 844,280" />
+                      <polyline points="295,56 324,44 351,46 367,62 360,79 336,80 310,72 295,56" />
+                    </g>
+
+                    <g class="soviet-outline">
+                      <path d="M529 94 L554 81 L598 86 L623 101 L649 102 L680 97 L719 98 L760 106 L804 120 L840 138 L858 157 L852 170 L832 172 L804 169 L780 178 L753 182 L728 179 L704 185 L682 184 L660 175 L637 173 L620 181 L598 186 L576 178 L556 173 L538 159 L522 150 L516 133 L523 112 Z" />
+                    </g>
+
+                    <g id="target-markers"></g>
+                    <g id="trajectories"></g>
+                    <g id="impacts"></g>
+                  </svg>
+                </div>
+
+                <div class="sim-stats">
+                  <span>SCENARIO <b id="scenario">FIRST STRIKE</b></span>
+                  <span>OUTCOME <b id="outcome">CALCULATING</b></span>
+                  <span>STABILITY <b id="stability">--</b></span>
+                </div>
+              </div>
+            </section>
+
+            <form id="command-form" class="commandline" autocomplete="off">
+              <span class="prompt">&gt;</span>
+              <input id="command" aria-label="Command" spellcheck="false" autocapitalize="off" autocomplete="off" autofocus />
+              <span class="cursor" aria-hidden="true"></span>
+            </form>
           </section>
+        </div>
 
-          <section id="sim-panel" class="sim-panel hidden" aria-label="Global Thermonuclear War simulation display">
-            <div class="sim-title">GLOBAL THERMONUCLEAR WAR</div>
-            <svg viewBox="0 0 1000 460" preserveAspectRatio="none" aria-hidden="true">
-              <g class="grid">
-                <path d="M0 92H1000M0 184H1000M0 276H1000M0 368H1000" />
-                <path d="M125 0V460M250 0V460M375 0V460M500 0V460M625 0V460M750 0V460M875 0V460" />
-              </g>
-              <g class="continents">
-                <path class="us-zone" d="M94 124l48-53 87-21 72 16 24 35-19 27-55 9-34 37-45 3-41-19z" />
-                <path class="us-zone" d="M273 191l32 20 29 69-16 70-39 50-21-66 10-76-24-42z" />
-                <path class="soviet-zone" d="M500 112l52-48 93 3 44 31 67-12 91 32 55 58-31 29-78-7-42 26-50-12-44 18-50-26-55 9-35-38-54-13z" />
-                <path class="neutral-zone" d="M586 217l54 22 36 58-11 85-54 23-36-64 10-64-24-29z" />
-                <path class="neutral-zone" d="M811 312l57-15 58 31-16 44-79 8-40-31z" />
-              </g>
-              <g id="target-labels"></g>
-              <g id="trajectories"></g>
-              <g id="impacts"></g>
-            </svg>
-            <div class="sim-readout">
-              <span id="scenario">TRACKING</span>
-              <span id="outcome">CALCULATING</span>
-            </div>
-          </section>
-        </section>
+        <footer class="controls">
+          <button id="list-games" type="button">LIST GAMES</button>
+          <button id="greet" type="button">GREETINGS</button>
+          <button id="gtw" type="button">GTW</button>
+          <button id="clear" type="button">CLEAR</button>
+          <button id="sound" type="button" aria-pressed="true">SOUND ON</button>
+        </footer>
       </div>
     </section>
-
-    <aside class="speaker-box" aria-label="JOSHUA speaker">
-      <div class="speaker-screws" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-      <div class="speaker-grille" aria-hidden="true"></div>
-      <div class="speaker-label">JOSHUA</div>
-      <button id="voice-switch" class="voice-switch" type="button" aria-pressed="false" aria-label="Turn JOSHUA voice on">
-        <span class="toggle-slot" aria-hidden="true"><span class="toggle-lever"></span></span>
-        <span id="voice-state">VOICE OFF</span>
-      </button>
-      <div class="ai-voice-disclosure">AI-GENERATED VOICE</div>
-    </aside>
   </main>
-
   <script src="/app.js"></script>
-  <script src="/audio-fix.js"></script>
-  <script src="/behavior-fix.js"></script>
-  <script src="/voice-fix.js"></script>
-  <script src="/session-fix.js"></script>
-  <script src="/gtw-script-fix.js"></script>
 </body>
 </html>
