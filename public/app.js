@@ -463,10 +463,11 @@ function showInput(show = true) {
     form.classList.toggle('mobile-busy', !show);
     input.setAttribute('aria-busy', String(!show));
 
-    if (show) {
-      resizeInput();
-      requestAnimationFrame(() => focusTerminalInput());
-    }
+    resizeInput();
+
+    // Keep the same focused input alive whether JOSHUA is busy or ready.
+    // On iOS this is what preserves the software keyboard between responses.
+    requestAnimationFrame(() => focusTerminalInput());
     return;
   }
 
