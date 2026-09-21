@@ -32,25 +32,26 @@
             </span>
           </form>
 
-          <section id="sim-panel" class="sim-panel hidden" aria-label="Simulation display">
+          <section id="sim-panel" class="sim-panel hidden" aria-label="Global Thermonuclear War simulation display">
             <div class="sim-title">GLOBAL THERMONUCLEAR WAR</div>
-            <svg viewBox="0 0 1000 460" preserveAspectRatio="none">
+            <svg viewBox="0 0 1000 460" preserveAspectRatio="none" aria-hidden="true">
               <g class="grid">
                 <path d="M0 92H1000M0 184H1000M0 276H1000M0 368H1000" />
                 <path d="M125 0V460M250 0V460M375 0V460M500 0V460M625 0V460M750 0V460M875 0V460" />
               </g>
               <g class="continents">
-                <path d="M94 124l48-53 87-21 72 16 24 35-19 27-55 9-34 37-45 3-41-19z" />
-                <path d="M273 191l32 20 29 69-16 70-39 50-21-66 10-76-24-42z" />
-                <path d="M500 112l52-48 93 3 44 31 67-12 91 32 55 58-31 29-78-7-42 26-50-12-44 18-50-26-55 9-35-38-54-13z" />
-                <path d="M586 217l54 22 36 58-11 85-54 23-36-64 10-64-24-29z" />
-                <path d="M811 312l57-15 58 31-16 44-79 8-40-31z" />
+                <path class="us-zone" d="M94 124l48-53 87-21 72 16 24 35-19 27-55 9-34 37-45 3-41-19z" />
+                <path class="us-zone" d="M273 191l32 20 29 69-16 70-39 50-21-66 10-76-24-42z" />
+                <path class="soviet-zone" d="M500 112l52-48 93 3 44 31 67-12 91 32 55 58-31 29-78-7-42 26-50-12-44 18-50-26-55 9-35-38-54-13z" />
+                <path class="neutral-zone" d="M586 217l54 22 36 58-11 85-54 23-36-64 10-64-24-29z" />
+                <path class="neutral-zone" d="M811 312l57-15 58 31-16 44-79 8-40-31z" />
               </g>
+              <g id="target-labels"></g>
               <g id="trajectories"></g>
               <g id="impacts"></g>
             </svg>
             <div class="sim-readout">
-              <span id="scenario">SCENARIO</span>
+              <span id="scenario">TRACKING</span>
               <span id="outcome">CALCULATING</span>
             </div>
           </section>
