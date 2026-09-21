@@ -373,6 +373,8 @@ async function typeLines(lines, speed = 24, gap = 110, className = '') {
 
 function clearTerminal() {
   terminal.innerHTML = '';
+  const screen = document.querySelector('.screen');
+  if (screen) screen.scrollTop = 0;
   simPanel.classList.add('hidden');
   if (tttPanel) tttPanel.classList.add('hidden');
   trajectories.innerHTML = '';
@@ -405,6 +407,8 @@ async function runStartupSequence() {
   }
 
   terminal.innerHTML = '';
+  const screen = document.querySelector('.screen');
+  if (screen) screen.scrollTop = 0;
   await sleep(180);
   glass?.classList.remove('connecting');
 
