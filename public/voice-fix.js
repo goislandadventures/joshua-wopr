@@ -1,18 +1,34 @@
 (() => {
-  const voiceCache = new Map();
-  const decodedCache = new Map();
-  let currentSource = null;
+  const wordBlobCache = new Map();
+  const wordBufferCache = new Map();
+  let activeSources = [];
   let verificationInFlight = false;
 
-  async function requestVoiceBlob(text) {
-    const key = String(text || '').trim().toUpperCase();
-    if (!key) return null;
-    if (voiceCache.has(key)) return voiceCache.get(key);
+  function tokenise(text) {
+    return String(text || '')
+      .replace(/—/g, ' ')
+      .match(/[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)?|[.,!?;:]/g) || [];
+  }
+
+  function isPunctuation(token) {
+    return /^[.,!?;:]$/.test(token);
+  }
+
+  function pauseFor(token) {
+    if (token === ',') return 0.115;
+    if (token === ';' || token === ':') return 0.145;
+    if (token === '.' || token === '!' || token === '?') return 0.205;
+    return 0.055;
+  }
+
+  async function fetchWordBlob(word) {
+    const key = word.toUpperCase();
+    if (wordBlobCache.has(key)) return wordBlobCache.get(key);
 
     const response = await fetch('/api/voice', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text: word, mode: 'word' }),
     });
 
     if (!response.ok) {
@@ -29,133 +45,184 @@
 
     const blob = await response.blob();
     if (!blob.size) throw new Error('EMPTY VOICE RESPONSE');
-    voiceCache.set(key, blob);
+
+    wordBlobCache.set(key, blob);
     return blob;
   }
 
-  async function decodeVoice(text, blob) {
-    const key = String(text || '').trim().toUpperCase();
-    if (decodedCache.has(key)) return decodedCache.get(key);
+  async function getWordBuffer(word) {
+    const key = word.toUpperCase();
+    if (wordBufferCache.has(key)) return wordBufferCache.get(key);
 
+    const blob = await fetchWordBlob(word);
     await unlockAudio();
+
     const ctx = state.audioContext;
     if (!ctx || ctx.state !== 'running') throw new Error('AUDIO CONTEXT UNAVAILABLE');
 
     const bytes = await blob.arrayBuffer();
     const buffer = await ctx.decodeAudioData(bytes.slice(0));
-    decodedCache.set(key, buffer);
+    wordBufferCache.set(key, buffer);
     return buffer;
   }
 
-  function makeSoftClipCurve(amount = 2.2) {
-    const samples = 1024;
-    const curve = new Float32Array(samples);
-    for (let i = 0; i < samples; i++) {
-      const x = (i * 2) / (samples - 1) - 1;
-      curve[i] = Math.tanh(x * amount) / Math.tanh(amount);
+  async function mapLimit(items, limit, worker) {
+    const results = new Array(items.length);
+    let cursor = 0;
+
+    async function run() {
+      while (cursor < items.length) {
+        const index = cursor++;
+        results[index] = await worker(items[index], index);
+      }
+    }
+
+    const runners = Array.from(
+      { length: Math.min(limit, items.length) },
+      () => run()
+    );
+
+    await Promise.all(runners);
+    return results;
+  }
+
+  function makeQuantizeCurve(levels = 96) {
+    const size = 65536;
+    const curve = new Float32Array(size);
+    for (let i = 0; i < size; i++) {
+      const x = (i / (size - 1)) * 2 - 1;
+      curve[i] = Math.round(x * levels) / levels;
     }
     return curve;
   }
 
   function stopCurrentVoice() {
-    if (!currentSource) return;
-    try { currentSource.stop(); } catch (_) {}
-    try { currentSource.disconnect(); } catch (_) {}
-    currentSource = null;
+    for (const source of activeSources) {
+      try { source.stop(); } catch (_) {}
+      try { source.disconnect(); } catch (_) {}
+    }
+    activeSources = [];
     state.currentVoiceSource = null;
   }
 
-  async function playVoice(text, blob) {
-    stopCurrentVoice();
-    const buffer = await decodeVoice(text, blob);
-
-    const ctx = state.audioContext;
-    if (!ctx || ctx.state !== 'running') throw new Error('AUDIO CONTEXT UNAVAILABLE');
-
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-
-    // Raise apparent age/register while the backend deliberately speaks slowly.
-    source.playbackRate.value = 1.13;
-
+  function build1983Output(ctx) {
     const removeChest = ctx.createBiquadFilter();
     removeChest.type = 'lowshelf';
     removeChest.frequency.value = 520;
-    removeChest.gain.value = -9;
+    removeChest.gain.value = -7.5;
 
     const highpass = ctx.createBiquadFilter();
     highpass.type = 'highpass';
-    highpass.frequency.value = 250;
-    highpass.Q.value = 0.72;
+    highpass.frequency.value = 180;
+    highpass.Q.value = 0.7;
 
-    const presence = ctx.createBiquadFilter();
-    presence.type = 'peaking';
-    presence.frequency.value = 1750;
-    presence.Q.value = 1.15;
-    presence.gain.value = 5.2;
+    const formant1 = ctx.createBiquadFilter();
+    formant1.type = 'peaking';
+    formant1.frequency.value = 1050;
+    formant1.Q.value = 1.05;
+    formant1.gain.value = 3.4;
+
+    const formant2 = ctx.createBiquadFilter();
+    formant2.type = 'peaking';
+    formant2.frequency.value = 2300;
+    formant2.Q.value = 1.15;
+    formant2.gain.value = 2.6;
 
     const lowpass = ctx.createBiquadFilter();
     lowpass.type = 'lowpass';
-    lowpass.frequency.value = 3250;
-    lowpass.Q.value = 0.75;
+    lowpass.frequency.value = 3400;
+    lowpass.Q.value = 0.72;
 
-    const shaper = ctx.createWaveShaper();
-    shaper.curve = makeSoftClipCurve(1.45);
-    shaper.oversample = '2x';
+    const quantizer = ctx.createWaveShaper();
+    quantizer.curve = makeQuantizeCurve(112);
+    quantizer.oversample = 'none';
 
     const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -30;
-    compressor.knee.value = 4;
-    compressor.ratio.value = 6;
-    compressor.attack.value = 0.002;
-    compressor.release.value = 0.11;
+    compressor.threshold.value = -28;
+    compressor.knee.value = 3;
+    compressor.ratio.value = 5;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.12;
 
     const output = ctx.createGain();
-    output.gain.value = 0.84;
+    output.gain.value = 0.82;
 
-    // Very light amplitude flutter gives the voice an early-synth machine texture.
-    const lfo = ctx.createOscillator();
-    const lfoDepth = ctx.createGain();
-    lfo.type = 'square';
-    lfo.frequency.value = 18;
-    lfoDepth.gain.value = 0.025;
-    lfo.connect(lfoDepth);
-    lfoDepth.connect(output.gain);
-
-    source.connect(removeChest);
     removeChest.connect(highpass);
-    highpass.connect(presence);
-    presence.connect(lowpass);
-    lowpass.connect(shaper);
-    shaper.connect(compressor);
+    highpass.connect(formant1);
+    formant1.connect(formant2);
+    formant2.connect(lowpass);
+    lowpass.connect(quantizer);
+    quantizer.connect(compressor);
     compressor.connect(output);
     output.connect(ctx.destination);
 
-    currentSource = source;
-    state.currentVoiceSource = source;
-
-    source.onended = () => {
-      try { lfo.stop(); } catch (_) {}
-      if (currentSource === source) currentSource = null;
-      if (state.currentVoiceSource === source) state.currentVoiceSource = null;
-    };
-
-    lfo.start();
-    source.start();
+    return removeChest;
   }
 
-  stopJoshuaVoice = function stopJoshuaVoiceSynthetic() {
+  async function playConcatenative(text) {
+    const tokens = tokenise(text);
+    const words = tokens.filter(token => !isPunctuation(token));
+    if (!words.length) return;
+
+    await unlockAudio();
+    const ctx = state.audioContext;
+    if (!ctx || ctx.state !== 'running') throw new Error('AUDIO CONTEXT UNAVAILABLE');
+
+    const unique = [...new Set(words.map(word => word.toUpperCase()))];
+    await mapLimit(unique, 4, word => getWordBuffer(word));
+
+    stopCurrentVoice();
+
+    const inputNode = build1983Output(ctx);
+    let cursor = ctx.currentTime + 0.035;
+    let lastWord = null;
+
+    for (const token of tokens) {
+      if (isPunctuation(token)) {
+        cursor += pauseFor(token);
+        continue;
+      }
+
+      const buffer = wordBufferCache.get(token.toUpperCase());
+      if (!buffer) continue;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+
+      // Backend speaks slowly; this lift makes the register smaller/youthful
+      // while fixed word gaps preserve the deliberately mechanical cadence.
+      source.playbackRate.value = 1.14;
+      source.connect(inputNode);
+      source.start(cursor);
+
+      activeSources.push(source);
+      const spokenDuration = buffer.duration / source.playbackRate.value;
+      cursor += Math.max(0.12, spokenDuration) + 0.050;
+      lastWord = source;
+    }
+
+    state.currentVoiceSource = lastWord;
+
+    if (lastWord) {
+      lastWord.onended = () => {
+        activeSources = [];
+        if (state.currentVoiceSource === lastWord) {
+          state.currentVoiceSource = null;
+        }
+      };
+    }
+  }
+
+  stopJoshuaVoice = function stopJoshuaVoiceConcatenative() {
     stopCurrentVoice();
   };
 
-  speakJoshua = async function speakJoshuaSynthetic(text) {
+  speakJoshua = async function speakJoshuaConcatenative(text) {
     if (!state.voiceEnabled || !String(text || '').trim()) return;
 
     try {
-      const blob = await requestVoiceBlob(text);
-      if (!state.voiceEnabled || !blob) return;
-      await playVoice(text, blob);
-      window.__joshuaVoiceStatus = { ok: true, error: null };
+      await playConcatenative(text);
+      window.__joshuaVoiceStatus = { ok: true, error: null, mode: 'concatenative-word' };
     } catch (error) {
       const message = error?.message || 'VOICE FAILED';
       window.__joshuaVoiceStatus = { ok: false, error: message };
@@ -170,12 +237,11 @@
     if (voiceStateEl) voiceStateEl.textContent = 'CHECKING';
 
     try {
-      const blob = await requestVoiceBlob('READY');
+      await playConcatenative('READY');
       if (!state.voiceEnabled) return;
 
-      await playVoice('READY', blob);
       if (voiceStateEl) voiceStateEl.textContent = 'VOICE ON';
-      window.__joshuaVoiceStatus = { ok: true, error: null };
+      window.__joshuaVoiceStatus = { ok: true, error: null, mode: 'concatenative-word' };
     } catch (error) {
       const message = error?.message || 'VOICE FAILED';
       console.error('JOSHUA VOICE VERIFY:', message);
