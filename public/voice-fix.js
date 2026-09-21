@@ -255,7 +255,7 @@
     // deliberately synthetic, smooth phrase delivery.
     tts.set_rate(138);
     tts.set_pitch(76);
-    tts.set_voice('en-us+klatt4');
+    tts.set_voice('en-us+klatt');
 
     const speechText = normalizeSpeechText(text);
 
