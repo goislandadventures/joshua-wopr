@@ -30,6 +30,9 @@ const state = {
   tttDrawCount: 0,
   audioArmed: false,
   audioContext: null,
+  terminalOscillator: null,
+  terminalGain: null,
+  terminalFilter: null,
   voiceEnabled: true,
   currentVoiceAudio: null,
   currentVoiceUrl: null,
@@ -60,6 +63,50 @@ function normalize(value) {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function ensureTerminalAudioGraph() {
+  const ctx = state.audioContext;
+  if (!ctx || ctx.state === 'closed') return false;
+
+  if (
+    state.terminalOscillator &&
+    state.terminalGain &&
+    state.terminalFilter
+  ) {
+    return true;
+  }
+
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(820, ctx.currentTime);
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1020, ctx.currentTime);
+    filter.Q.setValueAtTime(1.35, ctx.currentTime);
+
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+
+    state.terminalOscillator = osc;
+    state.terminalGain = gain;
+    state.terminalFilter = filter;
+    return true;
+  } catch (_) {
+    state.terminalOscillator = null;
+    state.terminalGain = null;
+    state.terminalFilter = null;
+    return false;
+  }
+}
+
 async function unlockAudio() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -70,6 +117,9 @@ async function unlockAudio() {
 
     if (!state.audioContext || state.audioContext.state === 'closed') {
       state.audioContext = new AudioCtx({ latencyHint: 'interactive' });
+      state.terminalOscillator = null;
+      state.terminalGain = null;
+      state.terminalFilter = null;
     }
 
     if (state.audioContext.state === 'suspended') {
@@ -77,6 +127,11 @@ async function unlockAudio() {
     }
 
     state.audioArmed = state.audioContext.state === 'running';
+
+    if (state.audioArmed) {
+      ensureTerminalAudioGraph();
+    }
+
     return state.audioArmed;
   } catch (_) {
     state.audioArmed = false;
@@ -86,37 +141,30 @@ async function unlockAudio() {
 
 function terminalTone() {
   const ctx = state.audioContext;
-  if (!ctx) return;
-
-  if (ctx.state === 'suspended') {
-    void ctx.resume();
-    return;
-  }
-
-  if (ctx.state !== 'running') return;
+  if (!ctx || ctx.state !== 'running') return;
+  if (!ensureTerminalAudioGraph()) return;
 
   try {
     const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
+    const gain = state.terminalGain.gain;
+    const osc = state.terminalOscillator;
+    const filter = state.terminalFilter;
 
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(865, now);
-    osc.frequency.exponentialRampToValueAtTime(735, now + 0.012);
+    // Persistent oscillator, pulsed for every single emitted character.
+    // Slight frequency movement keeps the WarGames-style chatter from
+    // sounding like a static modern key click.
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(0.0001, now);
+    gain.linearRampToValueAtTime(0.034, now + 0.0015);
+    gain.exponentialRampToValueAtTime(0.0001, now + 0.020);
 
-    filter.type = 'bandpass';
-    filter.frequency.value = 1050;
-    filter.Q.value = 1.25;
+    osc.frequency.cancelScheduledValues(now);
+    osc.frequency.setValueAtTime(845, now);
+    osc.frequency.exponentialRampToValueAtTime(735, now + 0.014);
 
-    gain.gain.setValueAtTime(0.030, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.020);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.022);
+    filter.frequency.cancelScheduledValues(now);
+    filter.frequency.setValueAtTime(1060, now);
+    filter.frequency.exponentialRampToValueAtTime(920, now + 0.016);
   } catch (_) {}
 }
 
@@ -299,7 +347,7 @@ async function typeLine(text = '', speed = 28, className = '') {
   const line = addLine('', className);
   for (const char of text) {
     line.textContent += char;
-    if (char !== ' ' && char !== '\t') terminalTone();
+    terminalTone();
     await sleep(speed + Math.random() * 12);
   }
   return line;
@@ -1200,6 +1248,28 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('focus', () => {
   void unlockAudio();
 });
+
+function monitorAudioContext() {
+  const ctx = state.audioContext;
+  if (!ctx || ctx.__joshuaMonitored) return;
+  ctx.__joshuaMonitored = true;
+
+  ctx.addEventListener('statechange', () => {
+    if (ctx.state === 'running') {
+      ensureTerminalAudioGraph();
+    }
+  });
+}
+
+document.addEventListener('keydown', async () => {
+  const ready = await unlockAudio();
+  if (ready) monitorAudioContext();
+}, { once: true });
+
+document.addEventListener('pointerdown', async () => {
+  const ready = await unlockAudio();
+  if (ready) monitorAudioContext();
+}, { once: true });
 
 setVoiceEnabled(true);
 setPrompt('');
