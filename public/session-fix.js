@@ -18,10 +18,10 @@
   async function logOffSession(rawValue) {
     commitInput(rawValue);
     state.sessionAuthenticated = false;
-    state.mode = 'session-logoff';
-    setPrompt('LOGON:');
-    showInput(true);
-    scrollTerminalBottom();
+    state.busy = true;
+    showInput(false);
+    await presentLogonPrompt('session-logoff');
+    state.busy = false;
   }
 
   successfulLogon = async function successfulLogonSessionAware() {
@@ -71,12 +71,11 @@
       showInput(false);
       addLine('');
       await typeLine('IDENTIFICATION NOT RECOGNIZED BY SYSTEM', 22);
-      addLine('');
+      await sleep(240);
+      await typeLine('--CONNECTION TERMINATED--', 25);
+      await sleep(900);
+      await presentLogonPrompt('session-logoff');
       state.busy = false;
-      state.mode = 'session-logoff';
-      setPrompt('LOGON:');
-      showInput(true);
-      scrollTerminalBottom();
       return;
     }
 
