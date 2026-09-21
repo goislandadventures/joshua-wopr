@@ -3,14 +3,15 @@
   state.sessionEstablished = false;
 
   const screenEl = document.querySelector('.screen');
+  const terminalEl = document.querySelector('#terminal');
   const originalSuccessfulLogon = successfulLogon;
   const originalListGames = listGames;
   const originalSubmitValue = submitValue;
 
   function scrollTerminalBottom() {
-    if (!screenEl) return;
+    if (!terminalEl) return;
     requestAnimationFrame(() => {
-      screenEl.scrollTop = screenEl.scrollHeight;
+      terminalEl.scrollTop = terminalEl.scrollHeight;
     });
   }
 
@@ -83,12 +84,12 @@
     scrollTerminalBottom();
   };
 
-  if (screenEl) {
+  if (terminalEl) {
     const observer = new MutationObserver(() => {
       scrollTerminalBottom();
     });
 
-    observer.observe(screenEl, {
+    observer.observe(terminalEl, {
       subtree: true,
       childList: true,
       characterData: true,
