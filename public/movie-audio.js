@@ -7,9 +7,15 @@
     ['STRANGE GAME THE ONLY WINNING MOVE IS NOT TO PLAY', '/audio/08-strange-game.mp3'],
   ]);
 
+  const LOCAL_PATHS = [...new Set(MOVIE_LINES.values())];
+  const SILENT_WAV =
+    'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+
   const bufferCache = new Map();
   let currentMovieSource = null;
   let currentMovieDone = Promise.resolve();
+  let movieMedia = null;
+  let mediaPrimed = false;
 
   function normalizeMovieLine(text) {
     return String(text || '')
@@ -22,6 +28,16 @@
 
   function getMoviePath(text) {
     return MOVIE_LINES.get(normalizeMovieLine(text)) || null;
+  }
+
+  function getMovieMedia() {
+    if (movieMedia) return movieMedia;
+
+    movieMedia = new Audio();
+    movieMedia.preload = 'auto';
+    movieMedia.playsInline = true;
+    movieMedia.volume = 1;
+    return movieMedia;
   }
 
   async function loadMovieBuffer(path) {
@@ -44,29 +60,87 @@
     return buffer;
   }
 
-  function stopMovieAudio() {
-    if (!currentMovieSource) return;
-
-    try { currentMovieSource.stop(); } catch (_) {}
-    try { currentMovieSource.disconnect(); } catch (_) {}
-
-    currentMovieSource = null;
-    window.__joshuaMovieAudioActive = false;
-  }
-
   function stopSyntheticVoice() {
     try {
       if (typeof stopJoshuaVoice === 'function') stopJoshuaVoice();
     } catch (_) {}
   }
 
-  async function playMoviePath(path) {
-    stopSyntheticVoice();
-    stopMovieAudio();
+  function stopMovieAudio() {
+    if (currentMovieSource) {
+      try { currentMovieSource.stop(); } catch (_) {}
+      try { currentMovieSource.disconnect(); } catch (_) {}
+      currentMovieSource = null;
+    }
+
+    if (movieMedia) {
+      try { movieMedia.pause(); } catch (_) {}
+    }
+
+    window.__joshuaMovieAudioActive = false;
+  }
+
+  window.__joshuaPrimeMovieMedia = function primeMovieMedia() {
+    const audio = getMovieMedia();
+
+    try {
+      audio.pause();
+      audio.src = SILENT_WAV;
+      audio.loop = true;
+      audio.muted = true;
+      audio.currentTime = 0;
+
+      const result = audio.play();
+      if (result?.then) {
+        result.then(() => {
+          mediaPrimed = true;
+        }).catch(() => {
+          mediaPrimed = false;
+        });
+      } else {
+        mediaPrimed = true;
+      }
+    } catch (_) {
+      mediaPrimed = false;
+    }
+  };
+
+  async function playViaMedia(path) {
+    const audio = getMovieMedia();
+
+    audio.loop = false;
+    audio.muted = false;
+    audio.volume = 1;
+    audio.src = path;
+    audio.currentTime = 0;
+    audio.load();
+
+    await audio.play();
+
+    window.__joshuaMovieAudioActive = true;
+
+    currentMovieDone = new Promise(resolve => {
+      const finish = () => {
+        window.__joshuaMovieAudioActive = false;
+        audio.removeEventListener('ended', finish);
+        audio.removeEventListener('error', finish);
+        audio.removeEventListener('abort', finish);
+        resolve();
+      };
+
+      audio.addEventListener('ended', finish, { once: true });
+      audio.addEventListener('error', finish, { once: true });
+      audio.addEventListener('abort', finish, { once: true });
+    });
+
+    return currentMovieDone;
+  }
+
+  async function playViaWebAudio(path) {
+    await unlockAudio();
 
     const buffer = await loadMovieBuffer(path);
     const ctx = state.audioContext;
-
     if (!ctx || ctx.state !== 'running') {
       throw new Error('AUDIO CONTEXT UNAVAILABLE');
     }
@@ -75,7 +149,7 @@
     const gain = ctx.createGain();
 
     source.buffer = buffer;
-    gain.gain.value = 1;
+    gain.gain.value = 1.06;
 
     source.connect(gain);
     gain.connect(ctx.destination);
@@ -92,43 +166,70 @@
     });
 
     source.start();
-
-    window.__joshuaMovieAudioStatus = {
-      ok: true,
-      source: 'local',
-      path,
-      error: null,
-    };
-
     return currentMovieDone;
   }
 
-  // Called only by app.js after the submitted login is exactly JOSHUA.
-  // This primes the greeting locally after successful authentication intent;
-  // incorrect logins never load any movie file.
-  window.__joshuaArmMovieAudioForLogin = function armMovieAudioForLogin() {
-    void unlockAudio();
-    void loadMovieBuffer('/audio/03-greetings-professor-falken.mp3')
-      .then(() => {
-        window.__joshuaMovieAudioPreload = {
+  async function playMoviePath(path) {
+    stopSyntheticVoice();
+    stopMovieAudio();
+
+    let mediaError = null;
+
+    // Mobile browsers are most reliable when the same media element was
+    // authorized from the user's command gesture. Desktop prefers Web Audio.
+    if (isMobileTerminal() || mediaPrimed) {
+      try {
+        const done = await playViaMedia(path);
+        window.__joshuaMovieAudioStatus = {
           ok: true,
-          source: 'local',
-          path: '/audio/03-greetings-professor-falken.mp3',
+          source: 'local-media',
+          path,
+          error: null,
         };
-      })
-      .catch(error => {
-        window.__joshuaMovieAudioPreload = {
-          ok: false,
-          source: 'local',
-          path: '/audio/03-greetings-professor-falken.mp3',
-          error: error?.message || 'LOCAL GREETING PRELOAD FAILED',
-        };
-        console.error('JOSHUA LOCAL MOVIE PRELOAD:', window.__joshuaMovieAudioPreload);
-      });
+        return done;
+      } catch (error) {
+        mediaError = error;
+      }
+    }
+
+    try {
+      const done = await playViaWebAudio(path);
+      window.__joshuaMovieAudioStatus = {
+        ok: true,
+        source: 'local-webaudio',
+        path,
+        media_fallback_from: mediaError?.message || null,
+        error: null,
+      };
+      return done;
+    } catch (error) {
+      throw new Error(
+        'LOCAL MOVIE AUDIO FAILED: ' +
+        [mediaError?.message, error?.message].filter(Boolean).join(' | ')
+      );
+    }
+  }
+
+  // Called only when the submitted login is exactly JOSHUA.
+  // After valid authentication intent, all currently installed local movie
+  // clips are decoded in the background. Incorrect logins load nothing.
+  window.__joshuaArmMovieAudioForLogin = function armMovieAudioForLogin() {
+    window.__joshuaPrimeMovieMedia?.();
+    void unlockAudio();
+
+    void Promise.allSettled(LOCAL_PATHS.map(loadMovieBuffer)).then(results => {
+      window.__joshuaMovieAudioPreload = {
+        ok: results.every(result => result.status === 'fulfilled'),
+        source: 'local',
+        loaded: results.filter(result => result.status === 'fulfilled').length,
+        total: results.length,
+      };
+    });
   };
 
   window.__joshuaResetMovieAudioSession = function resetMovieAudioSession() {
     stopMovieAudio();
+    mediaPrimed = false;
   };
 
   window.__joshuaWaitForMovieAudio = async function waitForMovieAudio() {
@@ -172,7 +273,14 @@
   }
 
   typeJoshuaLine = async function typeJoshuaLineLocalMovieAudio(text = '', speed = 32, className = '') {
-    void playJoshuaSpeech(text);
-    return typeLine(text, speed, className);
+    const speech = playJoshuaSpeech(text);
+    const typed = typeLine(text, speed, className);
+
+    const [typedResult] = await Promise.all([
+      typed,
+      speech.catch(() => 'audio-failed'),
+    ]);
+
+    return typedResult;
   };
 })();
