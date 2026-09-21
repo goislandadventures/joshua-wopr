@@ -13,7 +13,8 @@
     ['YOU ARE A HARD MAN TO REACH', 259739],
   ]);
 
-  let currentMovieAudio = null;
+  const bufferCache = new Map();
+  let currentMovieSource = null;
   let currentMovieDone = Promise.resolve();
 
   function normalizeMovieLine(text) {
@@ -29,13 +30,33 @@
     return MOVIE_LINES.get(normalizeMovieLine(text)) || null;
   }
 
+  async function getMovieBuffer(id) {
+    if (bufferCache.has(id)) return bufferCache.get(id);
+
+    await unlockAudio();
+    const ctx = state.audioContext;
+    if (!ctx || ctx.state !== 'running') throw new Error('AUDIO CONTEXT UNAVAILABLE');
+
+    const response = await fetch('/api/movie-sound?id=' + encodeURIComponent(id), {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error('MOVIE SOUND HTTP ' + response.status + (detail ? ': ' + detail.slice(0, 160) : ''));
+    }
+
+    const bytes = await response.arrayBuffer();
+    const buffer = await ctx.decodeAudioData(bytes.slice(0));
+    bufferCache.set(id, buffer);
+    return buffer;
+  }
+
   function stopMovieAudio() {
-    if (!currentMovieAudio) return;
-    try {
-      currentMovieAudio.pause();
-      currentMovieAudio.currentTime = 0;
-    } catch (_) {}
-    currentMovieAudio = null;
+    if (!currentMovieSource) return;
+    try { currentMovieSource.stop(); } catch (_) {}
+    try { currentMovieSource.disconnect(); } catch (_) {}
+    currentMovieSource = null;
     window.__joshuaMovieAudioActive = false;
   }
 
@@ -45,34 +66,34 @@
     } catch (_) {}
   }
 
-  function playMovieSound(id) {
+  async function playMovieSound(id) {
     stopSyntheticVoice();
     stopMovieAudio();
 
-    const audio = new Audio('/api/movie-sound?id=' + encodeURIComponent(id));
-    audio.preload = 'auto';
-    audio.volume = 1;
+    const buffer = await getMovieBuffer(id);
+    const ctx = state.audioContext;
+    if (!ctx || ctx.state !== 'running') throw new Error('AUDIO CONTEXT UNAVAILABLE');
 
-    currentMovieAudio = audio;
+    const source = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    source.buffer = buffer;
+    gain.gain.value = 1.0;
+
+    source.connect(gain);
+    gain.connect(ctx.destination);
+
+    currentMovieSource = source;
     window.__joshuaMovieAudioActive = true;
 
-    let finishMovie;
     currentMovieDone = new Promise(resolve => {
-      finishMovie = () => {
-        if (currentMovieAudio === audio) currentMovieAudio = null;
+      source.onended = () => {
+        if (currentMovieSource === source) currentMovieSource = null;
         window.__joshuaMovieAudioActive = false;
         resolve();
       };
-
-      audio.addEventListener('ended', finishMovie, { once: true });
-      audio.addEventListener('error', finishMovie, { once: true });
-      audio.addEventListener('abort', finishMovie, { once: true });
     });
 
-    audio.play().catch(() => {
-      if (typeof finishMovie === 'function') finishMovie();
-    });
-
+    source.start();
     return currentMovieDone;
   }
 
@@ -86,7 +107,17 @@
     const movieId = getMovieSoundId(text);
 
     if (movieId) {
-      void playMovieSound(movieId);
+      try {
+        await playMovieSound(movieId);
+        window.__joshuaMovieAudioStatus = { ok: true, id: movieId, error: null };
+      } catch (error) {
+        window.__joshuaMovieAudioStatus = {
+          ok: false,
+          id: movieId,
+          error: error?.message || 'MOVIE AUDIO FAILED',
+        };
+        console.error('JOSHUA MOVIE AUDIO:', window.__joshuaMovieAudioStatus);
+      }
       return 'movie';
     }
 
@@ -104,8 +135,6 @@
     }
   }
 
-  // Movie clips are independent of VOICE ON/OFF. Synthetic speech is not.
-  // Typing audio remains entirely independent because typeLine() still owns it.
   typeJoshuaLine = async function typeJoshuaLineWithAudioPriority(text = '', speed = 32, className = '') {
     void playJoshuaSpeech(text);
     return typeLine(text, speed, className);
