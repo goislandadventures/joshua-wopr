@@ -649,41 +649,7 @@ async function runZeroPlayerTicTacToe() {
 function makeArc(x1, y1, x2, y2, lift = 90) {
   const mx = (x1 + x2) / 2;
   const my = Math.min(y1, y2) - lift;
-  return `M${x1} ${y1} Q${mx} ${my} ${x2} ${y2}`;
-}
-
-function renderSimulationRound(round) {
-  trajectories.innerHTML = '';
-  impacts.innerHTML = '';
-
-  const seeds = [
-    [165, 125, 640, 145],
-    [690, 135, 230, 165],
-    [290, 215, 820, 330],
-    [850, 150, 590, 295],
-    [610, 255, 175, 125],
-    [370, 145, 735, 165],
-    [760, 200, 310, 330],
-  ];
-
-  const count = Math.min(3 + Math.floor(round / 2), seeds.length);
-
-  for (let i = 0; i < count; i++) {
-    const s = seeds[(i + round) % seeds.length];
-
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', makeArc(...s, 75 + ((i + round) % 4) * 24));
-    path.setAttribute('class', 'trajectory');
-    trajectories.appendChild(path);
-
-    const impact = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    impact.setAttribute('cx', s[2]);
-    impact.setAttribute('cy', s[3]);
-    impact.setAttribute('r', '2');
-    impact.setAttribute('class', 'impact');
-    impact.style.animationDelay = `${i * 120}ms`;
-    impacts.appendChild(impact);
-  }
+  return 'M' + x1 + ' ' + y1 + ' Q' + mx + ' ' + my + ' ' + x2 + ' ' + y2;
 }
 
 async function runGTW() {
@@ -691,40 +657,216 @@ async function runGTW() {
 
   state.busy = true;
   showInput(false);
-  clearTerminal();
+  state.gtwSide = null;
+  state.gtwTargets = [];
   await sleep(450);
+  clearTerminal();
+
   await typeLine('GLOBAL THERMONUCLEAR WAR', 34);
-  await typeLine('FICTIONAL SIMULATION', 24, 'dim');
+  addLine('');
+  await typeLines([
+    '            UNITED STATES        SOVIET UNION',
+    '                1                    2',
+    '',
+    'WHICH SIDE DO YOU WANT?',
+  ], 24, 85);
 
-  simPanel.classList.remove('hidden');
+  state.mode = 'gtw-side';
+  setPrompt('PLEASE CHOOSE ONE:');
+  state.busy = false;
+  showInput(true);
+}
 
-  const scenarios = [
-    'SCENARIO 01',
-    'SCENARIO 02',
-    'SCENARIO 03',
-    'SCENARIO 04',
-    'SCENARIO 05',
-    'SCENARIO 06',
-    'SCENARIO 07',
-    'SCENARIO 08',
-  ];
+async function handleGTWSide(value) {
+  const command = normalize(value);
+  let side = null;
 
-  for (let round = 1; round <= 10; round++) {
-    state.simulationRun += 1;
-    scenarioEl.textContent = scenarios[(round - 1) % scenarios.length];
-    outcomeEl.textContent = round < 10 ? 'ESCALATION' : 'NO WINNER';
-    renderSimulationRound(round);
-    await sleep(520);
+  if (command === '1' || command.includes('united states') || command === 'us' || command === 'usa') {
+    side = 'UNITED STATES';
+  } else if (command === '2' || command.includes('soviet') || command === 'ussr') {
+    side = 'SOVIET UNION';
   }
 
+  if (!side) {
+    state.busy = true;
+    showInput(false);
+    addLine('');
+    await typeLine('PLEASE SELECT 1 OR 2.', 26);
+    addLine('');
+    state.busy = false;
+    setPrompt('PLEASE CHOOSE ONE:');
+    showInput(true);
+    return;
+  }
+
+  state.gtwSide = side;
+  state.busy = true;
+  showInput(false);
+  await sleep(400);
+  clearTerminal();
+
+  await typeLine('AWAITING FIRST STRIKE COMMAND', 31);
+  await typeLine('-----------------------------', 14, 'dim');
+  addLine('');
+  await typeLine('ENTER TWO PRIMARY TARGETS.', 24);
+  addLine('');
+
+  state.mode = 'gtw-targets';
+  setPrompt('TARGET 1:');
+  state.busy = false;
+  showInput(true);
+}
+
+function sanitizeTarget(value) {
+  return value.trim().replace(/[^a-zA-Z0-9 .,'-]/g, '').slice(0, 28).toUpperCase();
+}
+
+async function handleGTWTarget(value) {
+  const target = sanitizeTarget(value);
+
+  if (!target) {
+    state.busy = true;
+    showInput(false);
+    addLine('');
+    await typeLine('TARGET NAME REQUIRED.', 24);
+    state.busy = false;
+    setPrompt('TARGET ' + (state.gtwTargets.length + 1) + ':');
+    showInput(true);
+    return;
+  }
+
+  state.gtwTargets.push(target);
+
+  if (state.gtwTargets.length < 2) {
+    setPrompt('TARGET 2:');
+    showInput(true);
+    return;
+  }
+
+  state.busy = true;
+  showInput(false);
+  await sleep(550);
+  await runGTWExchange();
+}
+
+function createSvgText(x, y, text, className = 'target-label') {
+  const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  label.setAttribute('x', x);
+  label.setAttribute('y', y);
+  label.setAttribute('class', className);
+  label.textContent = text;
+  return label;
+}
+
+function renderTargetLabels() {
+  if (!targetLabels) return;
+  targetLabels.innerHTML = '';
+
+  const points = state.gtwSide === 'SOVIET UNION'
+    ? [
+        { x: 220, y: 158, lx: 110, ly: 150 },
+        { x: 275, y: 255, lx: 118, ly: 278 },
+      ]
+    : [
+        { x: 705, y: 142, lx: 730, ly: 130 },
+        { x: 790, y: 215, lx: 800, ly: 240 },
+      ];
+
+  state.gtwTargets.slice(0, 2).forEach((target, index) => {
+    const p = points[index];
+    const ring = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    ring.setAttribute('cx', p.x);
+    ring.setAttribute('cy', p.y);
+    ring.setAttribute('rx', '34');
+    ring.setAttribute('ry', '20');
+    ring.setAttribute('class', 'target-ring');
+    targetLabels.appendChild(ring);
+    targetLabels.appendChild(createSvgText(p.lx, p.ly, target));
+  });
+}
+
+function renderExchangePhase(phase) {
+  trajectories.innerHTML = '';
+  impacts.innerHTML = '';
+
+  const sovietToUS = [
+    [775, 120, 220, 158],
+    [820, 150, 275, 255],
+    [690, 110, 345, 190],
+    [735, 235, 385, 310],
+    [865, 205, 185, 330],
+    [650, 260, 315, 125],
+  ];
+
+  const usToSoviet = [
+    [220, 158, 705, 142],
+    [275, 255, 790, 215],
+    [345, 190, 660, 105],
+    [385, 310, 865, 205],
+    [185, 330, 735, 235],
+    [315, 125, 650, 260],
+  ];
+
+  const primary = state.gtwSide === 'SOVIET UNION' ? sovietToUS : usToSoviet;
+  const counter = state.gtwSide === 'SOVIET UNION' ? usToSoviet : sovietToUS;
+  const visible = phase < 3 ? primary : primary.concat(counter);
+  const count = Math.min(2 + phase * 2, visible.length);
+
+  for (let i = 0; i < count; i++) {
+    const p = visible[i];
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', makeArc(p[0], p[1], p[2], p[3], 95 + (i % 3) * 35));
+    path.setAttribute('class', i < primary.length ? 'trajectory primary' : 'trajectory counter');
+    path.style.animationDelay = (i * 95) + 'ms';
+    trajectories.appendChild(path);
+
+    if (phase >= 2) {
+      const impact = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      impact.setAttribute('cx', p[2]);
+      impact.setAttribute('cy', p[3]);
+      impact.setAttribute('r', '2');
+      impact.setAttribute('class', 'impact');
+      impact.style.animationDelay = (i * 115) + 'ms';
+      impacts.appendChild(impact);
+    }
+  }
+}
+
+async function runGTWExchange() {
+  clearTerminal();
+  await sleep(350);
+  await typeLine(state.gtwSide + ' - FIRST STRIKE', 28);
+  await typeLine('PRIMARY TARGETS: ' + state.gtwTargets.join(' / '), 20, 'dim');
+  await sleep(500);
+
+  simPanel.classList.remove('hidden');
+  renderTargetLabels();
+
+  const phases = [
+    ['TRACKING', 'INITIAL LAUNCH'],
+    ['MISSILE WARNING', 'TRAJECTORIES CONFIRMED'],
+    ['IMPACT PROJECTION', 'COUNTERFORCE RESPONSE'],
+    ['GLOBAL EXCHANGE', 'ESCALATION'],
+    ['FINAL ANALYSIS', 'NO WINNER'],
+  ];
+
+  for (let phase = 0; phase < phases.length; phase++) {
+    state.simulationRun += 1;
+    scenarioEl.textContent = phases[phase][0];
+    outcomeEl.textContent = phases[phase][1];
+    renderExchangePhase(phase);
+    await sleep(1300);
+  }
+
+  await sleep(600);
   simPanel.classList.add('hidden');
   addLine('');
   await typeLines([
-    'EVERY SIMULATED PATH ENDS IN MUTUAL LOSS.',
-    'NO WINNING STRATEGY FOUND.',
+    'SIMULATION COMPLETE.',
+    'ALL ESCALATION PATHS CONVERGE ON MUTUAL LOSS.',
     '',
-    'CHESS?',
-  ], 34, 280);
+    'HOW ABOUT CHESS?',
+  ], 34, 330);
 
   addLine('');
   state.mode = 'falken';
@@ -761,6 +903,16 @@ async function submitValue(value) {
 
   if (state.mode === 'ttt-again') {
     await handleTTTAgain(value);
+    return;
+  }
+
+  if (state.mode === 'gtw-side') {
+    await handleGTWSide(value);
+    return;
+  }
+
+  if (state.mode === 'gtw-targets') {
+    await handleGTWTarget(value);
     return;
   }
 
