@@ -897,6 +897,13 @@ async function startTicTacToe() {
 
 async function handleTTTPlayers(value) {
   const n = Number.parseInt(value.trim(), 10);
+
+  // Do this before any setup delay so mobile browsers treat the game audio
+  // as belonging to the user's 0/1/2 submission gesture.
+  if ([0, 1, 2].includes(n)) {
+    await unlockAudio();
+  }
+
   if (![0, 1, 2].includes(n)) {
     state.busy = true;
     showInput(false);
