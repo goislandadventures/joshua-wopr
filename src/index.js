@@ -76,6 +76,12 @@ function normalizeSoundText(value) {
     .trim();
 }
 
+const ESPEAK_VENDOR = {
+  '/vendor/espeakng.js': 'https://cdn.jsdelivr.net/espeakng.js/1.49.0/espeakng.min.js',
+  '/vendor/espeakng.worker.js': 'https://cdn.jsdelivr.net/espeakng.js/1.49.0/espeakng.worker.js',
+  '/vendor/espeakng.worker.data': 'https://cdn.jsdelivr.net/espeakng.js/1.49.0/espeakng.worker.data',
+};
+
 function extractText(data) {
   if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
   const chunks = [];
@@ -91,6 +97,29 @@ function extractText(data) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (ESPEAK_VENDOR[url.pathname]) {
+      const upstream = await fetch(ESPEAK_VENDOR[url.pathname], {
+        headers: { 'user-agent': 'Mozilla/5.0' },
+      });
+
+      if (!upstream.ok || !upstream.body) {
+        return new Response('Vendor asset unavailable', { status: 502 });
+      }
+
+      const type = url.pathname.endsWith('.js')
+        ? 'application/javascript; charset=utf-8'
+        : 'application/octet-stream';
+
+      return new Response(upstream.body, {
+        status: 200,
+        headers: {
+          'content-type': type,
+          'cache-control': 'public, max-age=86400',
+          'x-joshua-vendor': 'espeakng',
+        },
+      });
+    }
 
     if (url.pathname === '/api/health') {
       return json({
