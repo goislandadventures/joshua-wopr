@@ -7,6 +7,10 @@ const scenarioEl = document.querySelector('#scenario');
 const outcomeEl = document.querySelector('#outcome');
 const trajectories = document.querySelector('#trajectories');
 const impacts = document.querySelector('#impacts');
+const targetLabels = document.querySelector('#target-labels');
+const tttPanel = document.querySelector('#ttt-panel');
+const tttBoardEl = document.querySelector('#ttt-board');
+const tttStatusEl = document.querySelector('#ttt-status');
 
 const state = {
   busy: false,
@@ -15,6 +19,15 @@ const state = {
   aiAvailable: null,
   conversation: [],
   simulationRun: 0,
+  gtwSide: null,
+  gtwTargets: [],
+  tttPlayers: null,
+  tttBoard: Array(9).fill(''),
+  tttTurn: 'X',
+  tttGameCount: 0,
+  tttDrawCount: 0,
+  audioArmed: false,
+  audioContext: null,
 };
 
 const games = [
@@ -39,6 +52,45 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function normalize(value) {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function unlockAudio() {
+  if (state.audioArmed) return;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    state.audioContext = new AudioCtx();
+    if (state.audioContext.state === 'suspended') state.audioContext.resume();
+    state.audioArmed = true;
+  } catch (_) {}
+}
+
+function terminalTone(kind = 'output') {
+  if (!state.audioArmed || !state.audioContext) return;
+  try {
+    const ctx = state.audioContext;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(kind === 'input' ? 1110 : 930, now);
+    osc.frequency.exponentialRampToValueAtTime(kind === 'input' ? 880 : 720, now + 0.018);
+
+    filter.type = 'bandpass';
+    filter.frequency.value = 1250;
+    filter.Q.value = 1.1;
+
+    gain.gain.setValueAtTime(kind === 'input' ? 0.017 : 0.024, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.024);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.026);
+  } catch (_) {}
 }
 
 function setPrompt(text) {
@@ -77,6 +129,7 @@ async function typeLine(text = '', speed = 28, className = '') {
   const line = addLine('', className);
   for (const char of text) {
     line.textContent += char;
+    if (char !== ' ' && char !== '\t') terminalTone('output');
     await sleep(speed + Math.random() * 12);
   }
   return line;
@@ -92,6 +145,10 @@ async function typeLines(lines, speed = 24, gap = 110, className = '') {
 function clearTerminal() {
   terminal.innerHTML = '';
   simPanel.classList.add('hidden');
+  if (tttPanel) tttPanel.classList.add('hidden');
+  trajectories.innerHTML = '';
+  impacts.innerHTML = '';
+  if (targetLabels) targetLabels.innerHTML = '';
 }
 
 async function failedLogon() {
@@ -191,6 +248,12 @@ async function handleFalken(value) {
     return;
   }
 
+  if (isTicTacToeCommand(command)) {
+    state.busy = false;
+    await startTicTacToe();
+    return;
+  }
+
   if (command === 'play global thermonuclear war' || command === 'global thermonuclear war') {
     state.busy = false;
     await runGTW();
@@ -268,6 +331,11 @@ async function handleGames(value) {
     return;
   }
 
+  if (isTicTacToeCommand(command)) {
+    await startTicTacToe();
+    return;
+  }
+
   state.busy = true;
   showInput(false);
   addLine('');
@@ -315,6 +383,267 @@ function localJoshua(message) {
   if (/hello|hi|greetings/.test(value)) return 'HELLO. WOULD YOU LIKE TO PLAY A GAME?';
 
   return 'I AM LISTENING.';
+}
+
+function isTicTacToeCommand(command) {
+  return command === 'tic-tac-toe' || command === 'tic tac toe' || command === 'tictactoe';
+}
+
+const TTT_WIN_LINES = [
+  [0,1,2], [3,4,5], [6,7,8],
+  [0,3,6], [1,4,7], [2,5,8],
+  [0,4,8], [2,4,6],
+];
+
+function tttResult(board) {
+  for (const [a,b,c] of TTT_WIN_LINES) {
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
+  }
+  return board.every(Boolean) ? 'DRAW' : null;
+}
+
+function minimaxScore(board, player, depth = 0) {
+  const result = tttResult(board);
+  if (result === 'X') return 10 - depth;
+  if (result === 'O') return depth - 10;
+  if (result === 'DRAW') return 0;
+
+  const scores = [];
+  for (let i = 0; i < 9; i++) {
+    if (board[i]) continue;
+    board[i] = player;
+    scores.push(minimaxScore(board, player === 'X' ? 'O' : 'X', depth + 1));
+    board[i] = '';
+  }
+  return player === 'X' ? Math.max(...scores) : Math.min(...scores);
+}
+
+function bestMoves(board, player) {
+  const choices = [];
+  let best = player === 'X' ? -Infinity : Infinity;
+
+  for (let i = 0; i < 9; i++) {
+    if (board[i]) continue;
+    board[i] = player;
+    const score = minimaxScore(board, player === 'X' ? 'O' : 'X', 1);
+    board[i] = '';
+
+    if ((player === 'X' && score > best) || (player === 'O' && score < best)) {
+      best = score;
+      choices.length = 0;
+      choices.push(i);
+    } else if (score === best) {
+      choices.push(i);
+    }
+  }
+  return choices;
+}
+
+function chooseJoshuaMove(board, player) {
+  const moves = bestMoves(board, player);
+  return moves[Math.floor(Math.random() * moves.length)];
+}
+
+function renderTicTacToe() {
+  tttBoardEl.innerHTML = '';
+  state.tttBoard.forEach((cell, index) => {
+    const div = document.createElement('div');
+    div.className = 'ttt-cell';
+    div.textContent = cell || String(index + 1);
+    if (!cell) div.classList.add('empty');
+    tttBoardEl.appendChild(div);
+  });
+
+  if (state.tttPlayers === 0) {
+    tttStatusEl.textContent = 'GAME ' + String(state.tttGameCount).padStart(3, '0') +
+      '   DRAWS ' + String(state.tttDrawCount).padStart(3, '0');
+  } else {
+    tttStatusEl.textContent = state.tttTurn + ' TO MOVE';
+  }
+}
+
+async function startTicTacToe() {
+  state.busy = true;
+  showInput(false);
+  clearTerminal();
+  await sleep(320);
+  await typeLine('TIC-TAC-TOE', 34);
+  addLine('');
+  await typeLine('NUMBER OF PLAYERS?', 34);
+  addLine('');
+  state.mode = 'ttt-players';
+  setPrompt('(0-2):');
+  state.busy = false;
+  showInput(true);
+}
+
+async function handleTTTPlayers(value) {
+  const n = Number.parseInt(value.trim(), 10);
+  if (![0, 1, 2].includes(n)) {
+    state.busy = true;
+    showInput(false);
+    addLine('');
+    await typeLine('ENTER 0, 1 OR 2.', 26);
+    addLine('');
+    state.busy = false;
+    setPrompt('(0-2):');
+    showInput(true);
+    return;
+  }
+
+  state.tttPlayers = n;
+  state.tttBoard = Array(9).fill('');
+  state.tttTurn = 'X';
+  state.tttGameCount = 0;
+  state.tttDrawCount = 0;
+  state.busy = true;
+  showInput(false);
+  await sleep(350);
+
+  if (n === 0) {
+    clearTerminal();
+    await typeLine('ZERO PLAYERS', 30);
+    await typeLine('JOSHUA VS. JOSHUA', 30);
+    addLine('');
+    tttPanel.classList.remove('hidden');
+    state.mode = 'ttt-zero';
+    await runZeroPlayerTicTacToe();
+    return;
+  }
+
+  clearTerminal();
+  await typeLine(n === 1 ? 'ONE PLAYER' : 'TWO PLAYERS', 30);
+  addLine('');
+  tttPanel.classList.remove('hidden');
+  renderTicTacToe();
+  state.mode = 'ttt-play';
+  state.busy = false;
+  setPrompt(n === 1 ? 'YOUR MOVE (1-9):' : 'PLAYER 1 MOVE (1-9):');
+  showInput(true);
+}
+
+async function handleTTTMove(value) {
+  const move = Number.parseInt(value.trim(), 10) - 1;
+  if (!Number.isInteger(move) || move < 0 || move > 8 || state.tttBoard[move]) {
+    state.busy = true;
+    showInput(false);
+    addLine('');
+    await typeLine('INVALID MOVE.', 24);
+    state.busy = false;
+    setPrompt(state.tttPlayers === 1 ? 'YOUR MOVE (1-9):' :
+      'PLAYER ' + (state.tttTurn === 'X' ? '1' : '2') + ' MOVE (1-9):');
+    showInput(true);
+    return;
+  }
+
+  state.tttBoard[move] = state.tttTurn;
+  renderTicTacToe();
+  let result = tttResult(state.tttBoard);
+  if (result) return finishInteractiveTicTacToe(result);
+
+  if (state.tttPlayers === 1) {
+    state.busy = true;
+    showInput(false);
+    state.tttTurn = 'O';
+    renderTicTacToe();
+    await sleep(420);
+    state.tttBoard[chooseJoshuaMove(state.tttBoard, 'O')] = 'O';
+    terminalTone('output');
+    renderTicTacToe();
+    result = tttResult(state.tttBoard);
+    if (result) return finishInteractiveTicTacToe(result);
+    state.tttTurn = 'X';
+    renderTicTacToe();
+    state.busy = false;
+    setPrompt('YOUR MOVE (1-9):');
+    showInput(true);
+    return;
+  }
+
+  state.tttTurn = state.tttTurn === 'X' ? 'O' : 'X';
+  renderTicTacToe();
+  setPrompt('PLAYER ' + (state.tttTurn === 'X' ? '1' : '2') + ' MOVE (1-9):');
+  showInput(true);
+}
+
+async function finishInteractiveTicTacToe(result) {
+  state.busy = true;
+  showInput(false);
+  await sleep(350);
+  addLine('');
+  if (result === 'DRAW') await typeLine('DRAW.', 32);
+  else if (state.tttPlayers === 1 && result === 'O') await typeLine('JOSHUA WINS.', 32);
+  else await typeLine(result + ' WINS.', 32);
+  addLine('');
+  await typeLine('PLAY AGAIN? Y/N', 30);
+  state.mode = 'ttt-again';
+  setPrompt('');
+  state.busy = false;
+  showInput(true);
+}
+
+async function handleTTTAgain(value) {
+  const command = normalize(value);
+  if (command === 'y' || command === 'yes') {
+    state.tttBoard = Array(9).fill('');
+    state.tttTurn = 'X';
+    clearTerminal();
+    tttPanel.classList.remove('hidden');
+    renderTicTacToe();
+    state.mode = 'ttt-play';
+    setPrompt(state.tttPlayers === 1 ? 'YOUR MOVE (1-9):' : 'PLAYER 1 MOVE (1-9):');
+    showInput(true);
+    return;
+  }
+
+  clearTerminal();
+  await typeLine('WOULD YOU LIKE TO PLAY A GAME?', 34);
+  addLine('');
+  state.mode = 'falken';
+  state.falkenStage = 5;
+  setPrompt('');
+  showInput(true);
+}
+
+async function runZeroPlayerTicTacToe() {
+  const totalGames = 36;
+
+  for (let game = 1; game <= totalGames; game++) {
+    state.tttBoard = Array(9).fill('');
+    state.tttTurn = 'X';
+    state.tttGameCount = game;
+
+    while (!tttResult(state.tttBoard)) {
+      const move = chooseJoshuaMove(state.tttBoard, state.tttTurn);
+      state.tttBoard[move] = state.tttTurn;
+      terminalTone('output');
+      renderTicTacToe();
+      const delay = game < 4 ? 170 : game < 10 ? 80 : game < 20 ? 34 : 14;
+      await sleep(delay);
+      state.tttTurn = state.tttTurn === 'X' ? 'O' : 'X';
+    }
+
+    if (tttResult(state.tttBoard) === 'DRAW') state.tttDrawCount += 1;
+    renderTicTacToe();
+    await sleep(game < 8 ? 130 : 25);
+  }
+
+  await sleep(450);
+  tttPanel.classList.add('hidden');
+  addLine('');
+  await typeLines([
+    'WINNER: NONE',
+    'THE ONLY WINNING MOVE IS NOT TO PLAY.',
+    '',
+    'HOW ABOUT A NICE GAME OF CHESS?',
+  ], 34, 300);
+
+  addLine('');
+  state.mode = 'falken';
+  state.falkenStage = 5;
+  state.busy = false;
+  setPrompt('');
+  showInput(true);
 }
 
 function makeArc(x1, y1, x2, y2, lift = 90) {
@@ -420,11 +749,27 @@ async function submitValue(value) {
     return;
   }
 
+  if (state.mode === 'ttt-players') {
+    await handleTTTPlayers(value);
+    return;
+  }
+
+  if (state.mode === 'ttt-play') {
+    await handleTTTMove(value);
+    return;
+  }
+
+  if (state.mode === 'ttt-again') {
+    await handleTTTAgain(value);
+    return;
+  }
+
   await handleFalken(value);
 }
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
+  unlockAudio();
   const value = input.value;
   if (!value.trim()) return;
   await submitValue(value);
@@ -432,7 +777,13 @@ form.addEventListener('submit', async event => {
 
 input.addEventListener('input', resizeInput);
 
+input.addEventListener('keydown', event => {
+  unlockAudio();
+  if (event.key.length === 1 || event.key === 'Backspace') terminalTone('input');
+});
+
 document.addEventListener('pointerdown', () => {
+  unlockAudio();
   if (!state.busy) input.focus();
 });
 
