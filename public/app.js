@@ -405,6 +405,8 @@ async function typePrompt(text = '', speed = 34) {
   const inputWrap = form.querySelector('.input-wrap');
 
   form.classList.remove('hidden');
+  form.classList.remove('mobile-busy');
+  input.setAttribute('aria-busy', 'false');
   input.value = '';
   resizeInput();
 
@@ -626,6 +628,7 @@ async function listGames() {
 
 async function successfulLogon() {
   state.busy = true;
+  setPrompt('');
   showInput(false);
   await sleep(620);
   clearTerminal();
