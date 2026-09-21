@@ -15,6 +15,7 @@ const tttBoardEl = document.querySelector('#ttt-board');
 const tttStatusEl = document.querySelector('#ttt-status');
 const voiceSwitch = document.querySelector('#voice-switch');
 const voiceStateEl = document.querySelector('#voice-state');
+const visitCountEl = document.querySelector('#visit-count');
 
 const state = {
   busy: false,
@@ -60,6 +61,43 @@ const games = [
 ];
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const coarsePointer = window.matchMedia?.('(pointer: coarse)');
+
+function isMobileTerminal() {
+  return Boolean(coarsePointer?.matches || window.innerWidth <= 820);
+}
+
+function focusTerminalInput() {
+  try {
+    input.focus({ preventScroll: true });
+  } catch (_) {
+    input.focus();
+  }
+}
+
+async function registerVisit() {
+  if (!visitCountEl) return;
+
+  try {
+    const response = await fetch('/api/visit', {
+      method: 'POST',
+      cache: 'no-store',
+      keepalive: true,
+    });
+
+    if (!response.ok) throw new Error('VISIT COUNTER HTTP ' + response.status);
+
+    const data = await response.json();
+    const count = Number(data?.count);
+
+    if (!Number.isFinite(count) || count < 0) throw new Error('INVALID VISIT COUNT');
+
+    visitCountEl.textContent = String(Math.trunc(count)).padStart(6, '0');
+  } catch (error) {
+    visitCountEl.textContent = '------';
+    console.error('VISIT COUNTER:', error?.message || error);
+  }
+}
 
 function normalize(value) {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -346,14 +384,24 @@ async function typePrompt(text = '', speed = 34) {
   // Rendering must never wait for browser audio permission.
   void unlockAudio();
 
+  const mobile = isMobileTerminal();
   const inputWrap = form.querySelector('.input-wrap');
+
   form.classList.remove('hidden');
-  input.disabled = true;
   input.value = '';
   resizeInput();
 
+  // Desktop can temporarily disable/hide the field while the prompt types.
+  // Mobile must keep the same focused input alive or the OS keyboard collapses.
+  if (!mobile) {
+    input.disabled = true;
+    if (inputWrap) inputWrap.style.visibility = 'hidden';
+  } else {
+    input.disabled = false;
+    if (inputWrap) inputWrap.style.visibility = '';
+  }
+
   promptEl.textContent = '';
-  if (inputWrap) inputWrap.style.visibility = 'hidden';
 
   for (const char of text) {
     promptEl.textContent += char;
@@ -364,9 +412,9 @@ async function typePrompt(text = '', speed = 34) {
   if (inputWrap) inputWrap.style.visibility = '';
   input.disabled = false;
   resizeInput();
-  requestAnimationFrame(() => input.focus());
-}
 
+  requestAnimationFrame(() => focusTerminalInput());
+}
 async function presentLogonPrompt(mode = 'logon') {
   clearTerminal();
   state.mode = mode;
@@ -379,14 +427,31 @@ function resizeInput() {
 }
 
 function showInput(show = true) {
+  if (isMobileTerminal()) {
+    // Never hide or disable the focused terminal field on mobile.
+    // Keeping the same input alive keeps the software keyboard open.
+    form.classList.remove('hidden');
+    input.disabled = false;
+    form.classList.toggle('mobile-busy', !show);
+    input.setAttribute('aria-busy', String(!show));
+
+    if (show) {
+      resizeInput();
+      requestAnimationFrame(() => focusTerminalInput());
+    }
+    return;
+  }
+
   form.classList.toggle('hidden', !show);
   input.disabled = !show;
+  form.classList.remove('mobile-busy');
+  input.setAttribute('aria-busy', 'false');
+
   if (show) {
     resizeInput();
-    requestAnimationFrame(() => input.focus());
+    requestAnimationFrame(() => focusTerminalInput());
   }
 }
-
 function scrollTerminalBottom() {
   requestAnimationFrame(() => {
     terminal.scrollTop = terminal.scrollHeight;
@@ -1391,9 +1456,22 @@ form.addEventListener('submit', async event => {
   await submitValue(value);
 });
 
+input.addEventListener('beforeinput', event => {
+  // Keep the mobile keyboard visible while JOSHUA is busy, but do not allow
+  // type-ahead to mutate the command field until the response finishes.
+  if (isMobileTerminal() && state.busy) {
+    event.preventDefault();
+  }
+});
+
 input.addEventListener('input', resizeInput);
 
 input.addEventListener('keydown', event => {
+  if (isMobileTerminal() && state.busy && event.key === 'Enter') {
+    event.preventDefault();
+    return;
+  }
+
   if (
     event.key === 'Backspace' ||
     event.key === 'Delete' ||
@@ -1481,7 +1559,13 @@ document.addEventListener('keydown', event => {
 
 document.addEventListener('pointerdown', event => {
   void unlockAudio();
-  if (!event.target.closest('.speaker-box') && !state.busy) input.focus();
+
+  if (
+    !event.target.closest('.speaker-box') &&
+    (!state.busy || isMobileTerminal())
+  ) {
+    focusTerminalInput();
+  }
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -1515,6 +1599,7 @@ document.addEventListener('pointerdown', async () => {
 }, { once: true });
 
 setVoiceEnabled(false);
+void registerVisit();
 setPrompt('');
 resizeInput();
 showInput(false);
