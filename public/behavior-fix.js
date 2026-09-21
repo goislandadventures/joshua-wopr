@@ -92,11 +92,15 @@
       return originalHandleFalken("I'm fine. How are you?");
     }
 
-    if (/^people sometimes make mistakes$/.test(scene)) {
+    if (/^people(?: sometimes)? make mistakes$/.test(scene)) {
       return originalHandleFalken('People sometimes make mistakes.');
     }
 
-    if (/^(id|i would) love to how about global thermonuclear war$/.test(scene)) {
+    if (
+      /^(id|i would) love to how about global thermonuclear war$/.test(scene) ||
+      /^love to how about global thermonuclear war$/.test(scene) ||
+      /^how about global thermonuclear war$/.test(scene)
+    ) {
       return originalHandleFalken('Love to. How about global thermonuclear war?');
     }
 
