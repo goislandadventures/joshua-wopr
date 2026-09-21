@@ -567,7 +567,9 @@ async function handleFalken(value) {
     command === 'people sometimes make mistakes.' ||
     command === 'people sometimes make mistakes'
   ) {
-    await typeJoshuaLine('YES THEY DO. SHALL WE PLAY A GAME?', 36);
+    await typeLine('YES THEY DO.', 36);
+    await sleep(180);
+    await typeJoshuaLine('SHALL WE PLAY A GAME?', 36);
     state.falkenStage = Math.max(state.falkenStage, 3);
   } else if (
     command === 'love to. how about global thermonuclear war?' ||
@@ -1282,12 +1284,9 @@ async function runGTWExchange() {
   simPanel.classList.add('hidden');
   gtwMapView?.classList.add('hidden');
   addLine('');
-  await typeLines([
-    'SIMULATION COMPLETE.',
-    'ALL ESCALATION PATHS CONVERGE ON MUTUAL LOSS.',
-    '',
-    'HOW ABOUT CHESS?',
-  ], 34, 330);
+  await typeJoshuaLine('STRANGE GAME.\nTHE ONLY WINNING MOVE IS NOT TO PLAY.', 34);
+  await sleep(420);
+  await typeJoshuaLine('HOW ABOUT A NICE GAME OF CHESS?', 34);
 
   addLine('');
   state.mode = 'falken';
