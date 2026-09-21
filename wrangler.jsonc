@@ -8,6 +8,20 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "VISIT_COUNTER",
+        "class_name": "VisitCounter"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["VisitCounter"]
+    }
+  ],
   "secrets": {
     "required": ["OPENAI_API_KEY"]
   }
