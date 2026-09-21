@@ -9,9 +9,9 @@
   const originalSubmitValue = submitValue;
 
   function scrollTerminalBottom() {
-    if (!terminalEl) return;
+    if (!screenEl) return;
     requestAnimationFrame(() => {
-      terminalEl.scrollTop = terminalEl.scrollHeight;
+      screenEl.scrollTop = screenEl.scrollHeight;
     });
   }
 
@@ -84,7 +84,7 @@
     scrollTerminalBottom();
   };
 
-  if (terminalEl) {
+  if (screenEl && terminalEl) {
     const observer = new MutationObserver(() => {
       scrollTerminalBottom();
     });
