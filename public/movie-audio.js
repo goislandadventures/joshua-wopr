@@ -103,6 +103,30 @@
 
   window.__joshuaMovieSoundIdForText = getMovieSoundId;
 
+  async function preloadMovieSound(id) {
+    try {
+      await getMovieBuffer(id);
+      window.__joshuaMovieAudioPreload = { ok: true, id, error: null };
+    } catch (error) {
+      window.__joshuaMovieAudioPreload = {
+        ok: false,
+        id,
+        error: error?.message || 'MOVIE PRELOAD FAILED',
+      };
+      console.error('JOSHUA MOVIE PRELOAD:', window.__joshuaMovieAudioPreload);
+    }
+  }
+
+  document.addEventListener('keydown', () => {
+    void preloadMovieSound(259743); // GREETINGS PROFESSOR FALKEN
+    void preloadMovieSound(259734); // SHALL WE PLAY A GAME
+  }, { once: true, capture: true });
+
+  document.addEventListener('pointerdown', () => {
+    void preloadMovieSound(259743);
+    void preloadMovieSound(259734);
+  }, { once: true, capture: true });
+
   async function playJoshuaSpeech(text) {
     const movieId = getMovieSoundId(text);
 
