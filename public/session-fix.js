@@ -58,6 +58,24 @@
     if (state.mode === 'session-logoff') {
       commitInput(value);
 
+      if (command === 'help logon') {
+        await helpLogon();
+        state.mode = 'session-logoff';
+        setPrompt('LOGON:');
+        showInput(true);
+        scrollTerminalBottom();
+        return;
+      }
+
+      if (command === 'help games') {
+        await helpGames();
+        state.mode = 'session-logoff';
+        setPrompt('LOGON:');
+        showInput(true);
+        scrollTerminalBottom();
+        return;
+      }
+
       if (command === 'joshua') {
         state.sessionAuthenticated = true;
         state.mode = 'falken';
