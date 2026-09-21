@@ -313,6 +313,36 @@ function setPrompt(text) {
   promptEl.textContent = text;
 }
 
+async function typePrompt(text = '', speed = 34) {
+  await unlockAudio();
+
+  const inputWrap = form.querySelector('.input-wrap');
+  form.classList.remove('hidden');
+  input.disabled = true;
+  input.value = '';
+  resizeInput();
+
+  promptEl.textContent = '';
+  if (inputWrap) inputWrap.style.visibility = 'hidden';
+
+  for (const char of text) {
+    promptEl.textContent += char;
+    terminalTone();
+    await sleep(speed + Math.random() * 10);
+  }
+
+  if (inputWrap) inputWrap.style.visibility = '';
+  input.disabled = false;
+  resizeInput();
+  requestAnimationFrame(() => input.focus());
+}
+
+async function presentLogonPrompt(mode = 'logon') {
+  clearTerminal();
+  state.mode = mode;
+  await typePrompt('LOGON:', 34);
+}
+
 function resizeInput() {
   const chars = Math.max(1, Math.min(48, input.value.length + 1));
   input.style.width = chars + 'ch';
@@ -412,10 +442,8 @@ async function runStartupSequence() {
   await sleep(180);
   glass?.classList.remove('connecting');
 
-  state.mode = 'logon';
-  setPrompt('LOGON:');
+  await presentLogonPrompt('logon');
   state.busy = false;
-  showInput(true);
 }
 
 async function failedLogon() {
@@ -425,12 +453,9 @@ async function failedLogon() {
   await typeLine('IDENTIFICATION NOT RECOGNIZED BY SYSTEM', 22);
   await sleep(240);
   await typeLine('--CONNECTION TERMINATED--', 25);
-  await sleep(700);
-  addLine('');
-  state.mode = 'logon';
-  setPrompt('LOGON:');
+  await sleep(900);
+  await presentLogonPrompt('logon');
   state.busy = false;
-  showInput(true);
 }
 
 async function helpLogon() {
@@ -577,35 +602,12 @@ async function handleFalken(value) {
 async function handleLogon(value) {
   const command = normalize(value);
 
-  if (command === 'help logon' || command === 'help') {
-    await helpLogon();
-    return;
-  }
-
-  if (command === 'help games') {
-    await helpGames();
-    return;
-  }
-
   if (command === 'joshua') {
     await successfulLogon();
     return;
   }
 
-  if (command === '000001' || command === 'falkens-maze' || command === 'armageddon') {
-    await failedLogon();
-    return;
-  }
-
-  state.busy = true;
-  showInput(false);
-  addLine('');
-  const reply = await askJoshua(value);
-  await typeJoshuaLine(reply.toUpperCase(), 28);
-  addLine('');
-  state.busy = false;
-  setPrompt('LOGON:');
-  showInput(true);
+  await failedLogon();
 }
 
 async function handleGames(value) {
