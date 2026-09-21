@@ -21,13 +21,19 @@ Behavior:
 
 const JOSHUA_VOICE_INSTRUCTIONS = `
 Use a small, youthful, gender-neutral synthetic computer voice.
-The register should be noticeably higher and lighter than a typical adult male voice.
-Do not sound deep, gravelly, breathy, sinister, dramatic, warm, or emotionally human.
-Keep pitch movement narrow and delivery extremely flat, precise, literal, and calm.
-Separate words cleanly with slightly mechanical timing and deliberate pauses.
-Consonants should be crisp; vowels should be steady and short.
-Imagine a 1983 speech synthesizer speaking through a compact computer speaker: limited bandwidth, clean electronic articulation, almost no chest resonance, and very little natural prosody.
-The result should feel machine-generated first and human-like second.
+The register should be light and compact, never deep, gravelly, sinister, breathy, warm, or theatrical.
+Keep emotional range almost zero and intonation narrow.
+Speak with precise consonants, steady vowels, and minimal natural prosody.
+The result should sound machine-generated first and human-like second.
+Do not imitate or impersonate any identifiable actor, performer, or real person.
+`.trim();
+
+const JOSHUA_WORD_VOICE_INSTRUCTIONS = `
+Speak exactly one isolated English word as though it is stored in a 1983 computer speech database.
+Do not give the word sentence intonation, emphasis, emotion, warmth, breathiness, or conversational rhythm.
+Use a small, youthful, gender-neutral register with crisp consonants and a short steady vowel.
+Begin immediately, end cleanly, and add no extra words or sounds.
+The delivery must be flat, literal, compact, and synthetic.
 Do not imitate or impersonate any identifiable actor, performer, or real person.
 `.trim();
 
@@ -125,7 +131,9 @@ export default {
         return json({ error: 'Invalid JSON' }, 400);
       }
 
-      const text = typeof body?.text === 'string' ? body.text.trim().slice(0, 700) : '';
+      const wordMode = body?.mode === 'word';
+      const maxChars = wordMode ? 48 : 700;
+      const text = typeof body?.text === 'string' ? body.text.trim().slice(0, maxChars) : '';
       if (!text) return json({ error: 'No text' }, 400);
 
       const speechRequest = async (payload) => {
@@ -144,22 +152,33 @@ export default {
         return { response, error: data?.error || null };
       };
 
-      let attempt = await speechRequest({
-        model: 'gpt-4o-mini-tts',
-        voice: 'shimmer',
-        input: text,
-        instructions: JOSHUA_VOICE_INSTRUCTIONS,
-        response_format: 'mp3',
-        speed: 0.70,
-      });
+      const primaryPayload = wordMode
+        ? {
+            model: 'gpt-4o-mini-tts',
+            voice: 'alloy',
+            input: text,
+            instructions: JOSHUA_WORD_VOICE_INSTRUCTIONS,
+            response_format: 'wav',
+            speed: 0.58,
+          }
+        : {
+            model: 'gpt-4o-mini-tts',
+            voice: 'alloy',
+            input: text,
+            instructions: JOSHUA_VOICE_INSTRUCTIONS,
+            response_format: 'wav',
+            speed: 0.72,
+          };
+
+      let attempt = await speechRequest(primaryPayload);
 
       if (!attempt.response.ok && (attempt.response.status === 400 || attempt.response.status === 404)) {
         attempt = await speechRequest({
           model: 'tts-1',
-          voice: 'shimmer',
+          voice: 'alloy',
           input: text,
-          response_format: 'mp3',
-          speed: 0.70,
+          response_format: 'wav',
+          speed: wordMode ? 0.58 : 0.72,
         });
       }
 
@@ -176,9 +195,10 @@ export default {
       return new Response(attempt.response.body, {
         status: 200,
         headers: {
-          'content-type': 'audio/mpeg',
-          'cache-control': 'no-store',
+          'content-type': 'audio/wav',
+          'cache-control': wordMode ? 'public, max-age=86400' : 'no-store',
           'x-ai-generated-voice': 'true',
+          'x-joshua-voice-mode': wordMode ? 'concatenative-word' : 'sentence',
         },
       });
     }
