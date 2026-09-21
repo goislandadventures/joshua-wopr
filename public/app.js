@@ -229,9 +229,9 @@ function playTTTMoveTone(mark, intensity = 1) {
     compressor.connect(master);
     master.connect(ctx.destination);
 
-    const fundamental = mark === 'X' ? 205 : 168;
-    const endFreq = mark === 'X' ? 184 : 150;
-    const duration = mark === 'X' ? 0.175 : 0.195;
+    const fundamental = mark === 'X' ? 190 : 164;
+    const endFreq = mark === 'X' ? 174 : 149;
+    const duration = mark === 'X' ? 0.180 : 0.195;
 
     // Main low "donk" — intentionally Windows-error-like and ominous.
     const main = ctx.createOscillator();
