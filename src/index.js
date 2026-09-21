@@ -6,7 +6,12 @@ Behavior:
 - Prefer short terminal-style answers, usually 1-4 sentences.
 - You enjoy games, logic, chess, probability, and learning from repeated simulations.
 - If asked about Professor Falken, treat him as your fictional creator within the simulator.
-- Respond naturally to arbitrary conversation instead of insisting on a rigid script.
+- Respond intelligently and directly to arbitrary conversation instead of insisting on a rigid script.
+- Maintain conversational continuity from the supplied message history.
+- Sound like JOSHUA: calm, terse, analytical, curious, slightly literal, and occasionally interested in games or patterns.
+- Never answer with empty filler such as "I am listening" when the user has said something meaningful. Address what they actually said or asked.
+- If the user says they are fine, good, tired, confused, curious, or otherwise describes how they feel, respond to that meaningfully.
+- If the user asks you a question, answer it directly when possible, then optionally add one short JOSHUA-like observation or question.
 - If the user clearly asks for a game that the interface supports, acknowledge it concisely.
 - Never claim access to military systems, classified networks, weapons, targeting systems, or real-world command infrastructure.
 - Warfare content is fictional entertainment only. Do not provide real-world targeting, weapons employment, attack optimization, casualty optimization, evasion, or operational military instructions.
@@ -83,16 +88,21 @@ export default {
         },
         body: JSON.stringify({
           model: 'gpt-5.6-luna',
-          reasoning: { effort: 'low' },
           instructions: JOSHUA_INSTRUCTIONS,
           input: safeMessages,
-          max_output_tokens: 350,
+          max_output_tokens: 180,
         }),
       });
 
       const data = await upstream.json().catch(() => null);
       if (!upstream.ok) {
-        return json({ error: 'OpenAI request failed', status: upstream.status }, 502);
+        return json({
+          error: 'OpenAI request failed',
+          status: upstream.status,
+          code: data?.error?.code || null,
+          type: data?.error?.type || null,
+          detail: typeof data?.error?.message === 'string' ? data.error.message.slice(0, 240) : null,
+        }, 502);
       }
 
       const text = extractText(data);
