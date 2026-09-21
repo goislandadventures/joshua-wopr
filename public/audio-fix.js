@@ -56,7 +56,8 @@
 
   // Preserve a tone for every machine-rendered character.
   typeLine = async function typeLineSlower(text = '', speed = 28, className = '') {
-    await unlockAudio();
+    // Text always renders immediately. Audio permission may resolve in parallel.
+    void unlockAudio();
 
     const line = addLine('', className);
     for (const char of text) {
