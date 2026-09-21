@@ -6,7 +6,8 @@
     if (!ctx || ctx.state === 'closed') return null;
     if (toneBuffer && boundContext === ctx) return toneBuffer;
 
-    const duration = 0.040;
+    // Lower, rounder terminal chatter than the previous version.
+    const duration = 0.052;
     const length = Math.max(1, Math.floor(ctx.sampleRate * duration));
     const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -14,16 +15,16 @@
     let phase = 0;
     for (let i = 0; i < length; i++) {
       const p = i / Math.max(1, length - 1);
-      const freq = 1320 - (360 * p);
+      const freq = 980 - (220 * p);
       phase += (2 * Math.PI * freq) / ctx.sampleRate;
 
       const square = Math.sin(phase) >= 0 ? 1 : -1;
-      const overtone = Math.sin(phase * 2) * 0.20;
-      const attack = Math.min(1, p / 0.07);
-      const release = Math.pow(1 - p, 2.1);
+      const overtone = Math.sin(phase * 2) * 0.14;
+      const attack = Math.min(1, p / 0.08);
+      const release = Math.pow(1 - p, 2.0);
       const envelope = attack * release;
 
-      data[i] = (square * 0.80 + overtone) * envelope * 0.22;
+      data[i] = (square * 0.72 + overtone) * envelope * 0.18;
     }
 
     toneBuffer = buffer;
@@ -59,6 +60,19 @@
       }
     } catch (_) {}
   }
+
+  // Slow all machine-rendered typing slightly while preserving every tone.
+  typeLine = async function typeLineSlower(text = '', speed = 28, className = '') {
+    await unlockAudio();
+
+    const line = addLine('', className);
+    for (const char of text) {
+      line.textContent += char;
+      terminalTone();
+      await sleep((speed * 1.16) + 4 + Math.random() * 10);
+    }
+    return line;
+  };
 
   document.addEventListener('keydown', armTerminalAudio, { capture: true });
   document.addEventListener('pointerdown', armTerminalAudio, { capture: true });
