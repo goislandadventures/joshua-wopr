@@ -16,6 +16,7 @@ const tttStatusEl = document.querySelector('#ttt-status');
 const voiceSwitch = document.querySelector('#voice-switch');
 const voiceStateEl = document.querySelector('#voice-state');
 const visitCountEl = document.querySelector('#visit-count');
+const speakerBox = document.querySelector('.speaker-box');
 
 const state = {
   busy: false,
@@ -65,6 +66,18 @@ const coarsePointer = window.matchMedia?.('(pointer: coarse)');
 
 function isMobileTerminal() {
   return Boolean(coarsePointer?.matches || window.innerWidth <= 820);
+}
+
+function updateMobileSpeakerClearance() {
+  if (!speakerBox) return;
+
+  if (!isMobileTerminal()) {
+    document.documentElement.style.removeProperty('--mobile-speaker-clearance');
+    return;
+  }
+
+  const clearance = Math.ceil(speakerBox.getBoundingClientRect().height + 22);
+  document.documentElement.style.setProperty('--mobile-speaker-clearance', clearance + 'px');
 }
 
 function focusTerminalInput() {
@@ -261,7 +274,11 @@ function playTTTMoveTone(mark, intensity = 1) {
     compressor.attack.value = 0.002;
     compressor.release.value = 0.14;
 
-    master.gain.setValueAtTime(Math.min(0.34, 0.19 + intensity * 0.045), now);
+    const mobileAudio = isMobileTerminal();
+    const outputGain = mobileAudio
+      ? Math.min(0.46, 0.30 + intensity * 0.055)
+      : Math.min(0.36, 0.21 + intensity * 0.045);
+    master.gain.setValueAtTime(outputGain, now);
 
     lowShelf.connect(compressor);
     compressor.connect(master);
@@ -302,7 +319,7 @@ function playTTTMoveTone(mark, intensity = 1) {
     partial.frequency.setValueAtTime(fundamental * 2.0, now);
     partial.frequency.exponentialRampToValueAtTime(endFreq * 2.0, now + duration * 0.72);
     partialGain.gain.setValueAtTime(0.0001, now);
-    partialGain.gain.linearRampToValueAtTime(0.16, now + 0.004);
+    partialGain.gain.linearRampToValueAtTime(mobileAudio ? 0.38 : 0.22, now + 0.004);
     partialGain.gain.exponentialRampToValueAtTime(0.0001, now + duration * 0.72);
     partial.connect(partialGain);
     partialGain.connect(lowShelf);
@@ -462,11 +479,13 @@ function showInput(show = true) {
   }
 }
 function scrollTerminalBottom() {
+  const screen = document.querySelector('.screen');
+  if (!screen) return;
+
   requestAnimationFrame(() => {
-    terminal.scrollTop = terminal.scrollHeight;
+    screen.scrollTop = screen.scrollHeight;
   });
 }
-
 function addLine(text = '', className = '') {
   const line = document.createElement('div');
   line.className = `line ${className}`.trim();
@@ -922,6 +941,7 @@ async function handleTTTPlayers(value) {
 }
 
 async function handleTTTMove(value) {
+  await unlockAudio();
   const keypadToIndex = { '7':0, '8':1, '9':2, '4':3, '5':4, '6':5, '1':6, '2':7, '3':8 };
   const digit = value.trim();
   const move = keypadToIndex[digit] ?? -1;
@@ -1008,6 +1028,7 @@ async function handleTTTAgain(value) {
 }
 
 async function runZeroPlayerTicTacToe() {
+  await unlockAudio();
   const totalGames = 36;
 
   for (let game = 1; game <= totalGames; game++) {
@@ -1454,6 +1475,14 @@ form.addEventListener('submit', async event => {
   const command = normalize(value);
   const loginMode = state.mode === 'logon' || state.mode === 'session-logoff';
 
+  // On mobile, keep the already-authorized local movie player alive from the
+  // user's command gesture so a scripted line can speak several seconds later.
+  if ((loginMode && command === 'joshua') || state.sessionAuthenticated) {
+    try {
+      window.__joshuaPrimeMovieMedia?.();
+    } catch (_) {}
+  }
+
   // Arm the movie-audio element only when the submitted login is actually JOSHUA.
   // Invalid logins never prime, preload, or fetch a movie clip.
   if (loginMode && command === 'joshua') {
@@ -1608,8 +1637,18 @@ document.addEventListener('pointerdown', async () => {
 }, { once: true });
 
 setVoiceEnabled(false);
+updateMobileSpeakerClearance();
 void registerVisit();
 setPrompt('');
 resizeInput();
 showInput(false);
 void runStartupSequence();
+
+
+window.addEventListener('resize', updateMobileSpeakerClearance);
+window.visualViewport?.addEventListener('resize', updateMobileSpeakerClearance);
+
+if (speakerBox && typeof ResizeObserver === 'function') {
+  const speakerResizeObserver = new ResizeObserver(updateMobileSpeakerClearance);
+  speakerResizeObserver.observe(speakerBox);
+}
