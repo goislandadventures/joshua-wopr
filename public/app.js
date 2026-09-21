@@ -210,58 +210,71 @@ function playTTTMoveTone(mark, intensity = 1) {
 
     const now = ctx.currentTime;
     const master = ctx.createGain();
-    master.gain.setValueAtTime(Math.min(0.24, 0.12 + intensity * 0.035), now);
+    const compressor = ctx.createDynamicsCompressor();
+    const lowShelf = ctx.createBiquadFilter();
+
+    lowShelf.type = 'lowshelf';
+    lowShelf.frequency.value = 220;
+    lowShelf.gain.value = 7.5;
+
+    compressor.threshold.value = -24;
+    compressor.knee.value = 4;
+    compressor.ratio.value = 6;
+    compressor.attack.value = 0.002;
+    compressor.release.value = 0.14;
+
+    master.gain.setValueAtTime(Math.min(0.34, 0.19 + intensity * 0.045), now);
+
+    lowShelf.connect(compressor);
+    compressor.connect(master);
     master.connect(ctx.destination);
 
-    const makeTone = (startOffset, startFreq, endFreq, duration, type, harmonic = 0) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const lowpass = ctx.createBiquadFilter();
+    const fundamental = mark === 'X' ? 205 : 168;
+    const endFreq = mark === 'X' ? 184 : 150;
+    const duration = mark === 'X' ? 0.175 : 0.195;
 
-      osc.type = type;
-      osc.frequency.setValueAtTime(startFreq, now + startOffset);
-      osc.frequency.exponentialRampToValueAtTime(endFreq, now + startOffset + duration);
+    // Main low "donk" — intentionally Windows-error-like and ominous.
+    const main = ctx.createOscillator();
+    const mainGain = ctx.createGain();
+    main.type = 'sine';
+    main.frequency.setValueAtTime(fundamental, now);
+    main.frequency.exponentialRampToValueAtTime(endFreq, now + duration);
+    mainGain.gain.setValueAtTime(0.0001, now);
+    mainGain.gain.linearRampToValueAtTime(1.0, now + 0.006);
+    mainGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    main.connect(mainGain);
+    mainGain.connect(lowShelf);
 
-      lowpass.type = 'lowpass';
-      lowpass.frequency.value = 720;
-      lowpass.Q.value = 0.8;
+    // Sub layer adds the bass weight without making the notes indistinguishable.
+    const sub = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(fundamental * 0.5, now);
+    sub.frequency.exponentialRampToValueAtTime(endFreq * 0.5, now + duration * 0.92);
+    subGain.gain.setValueAtTime(0.0001, now);
+    subGain.gain.linearRampToValueAtTime(0.42, now + 0.008);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, now + duration * 0.92);
+    sub.connect(subGain);
+    subGain.connect(lowShelf);
 
-      gain.gain.setValueAtTime(0.0001, now + startOffset);
-      gain.gain.linearRampToValueAtTime(1, now + startOffset + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
+    // Quiet upper partial keeps small speakers from losing the pitch difference.
+    const partial = ctx.createOscillator();
+    const partialGain = ctx.createGain();
+    partial.type = 'triangle';
+    partial.frequency.setValueAtTime(fundamental * 2.0, now);
+    partial.frequency.exponentialRampToValueAtTime(endFreq * 2.0, now + duration * 0.72);
+    partialGain.gain.setValueAtTime(0.0001, now);
+    partialGain.gain.linearRampToValueAtTime(0.16, now + 0.004);
+    partialGain.gain.exponentialRampToValueAtTime(0.0001, now + duration * 0.72);
+    partial.connect(partialGain);
+    partialGain.connect(lowShelf);
 
-      osc.connect(lowpass);
-      lowpass.connect(gain);
-      gain.connect(master);
-
-      osc.start(now + startOffset);
-      osc.stop(now + startOffset + duration + 0.015);
-
-      if (harmonic > 0) {
-        const h = ctx.createOscillator();
-        const hg = ctx.createGain();
-        h.type = 'sine';
-        h.frequency.setValueAtTime(startFreq * harmonic, now + startOffset);
-        h.frequency.exponentialRampToValueAtTime(endFreq * harmonic, now + startOffset + duration);
-        hg.gain.setValueAtTime(0.0001, now + startOffset);
-        hg.gain.linearRampToValueAtTime(0.18, now + startOffset + 0.010);
-        hg.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
-        h.connect(hg);
-        hg.connect(master);
-        h.start(now + startOffset);
-        h.stop(now + startOffset + duration + 0.015);
-      }
-    };
-
-    if (mark === 'X') {
-      // Ominous X: slightly higher than O, with a short descending answer.
-      makeTone(0.000, 315, 276, 0.115, 'triangle', 2);
-      makeTone(0.082, 286, 252, 0.105, 'sine', 0);
-    } else {
-      // Ominous O: lower and rounder, clearly separated from X.
-      makeTone(0.000, 246, 214, 0.145, 'sine', 2);
-      makeTone(0.095, 222, 196, 0.125, 'triangle', 0);
-    }
+    main.start(now);
+    sub.start(now);
+    partial.start(now);
+    main.stop(now + duration + 0.02);
+    sub.stop(now + duration + 0.02);
+    partial.stop(now + duration + 0.02);
   };
 
   void play();
@@ -1413,6 +1426,45 @@ voiceSwitch?.addEventListener('click', () => {
     if (!form.classList.contains('hidden') && !input.disabled) input.focus();
   }, 80);
 });
+
+document.addEventListener('keydown', event => {
+  // If the speaker button or any non-terminal element ever owns focus,
+  // route normal typing straight back into the terminal.
+  if (
+    state.busy ||
+    form.classList.contains('hidden') ||
+    input.disabled ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey
+  ) {
+    return;
+  }
+
+  if (document.activeElement === input) return;
+
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    input.focus();
+    form.requestSubmit();
+    return;
+  }
+
+  if (event.key === 'Backspace') {
+    event.preventDefault();
+    input.focus();
+    input.value = input.value.slice(0, -1);
+    resizeInput();
+    return;
+  }
+
+  if (event.key.length === 1) {
+    event.preventDefault();
+    input.focus();
+    input.value += event.key;
+    resizeInput();
+  }
+}, { capture: true });
 
 document.addEventListener('pointerdown', event => {
   void unlockAudio();
