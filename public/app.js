@@ -60,19 +60,34 @@ function normalize(value) {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-function unlockAudio() {
-  if (state.audioArmed) return;
+async function unlockAudio() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    state.audioContext = new AudioCtx();
-    if (state.audioContext.state === 'suspended') state.audioContext.resume();
-    state.audioArmed = true;
-  } catch (_) {}
+    if (!AudioCtx) {
+      state.audioArmed = false;
+      return false;
+    }
+
+    if (!state.audioContext || state.audioContext.state === 'closed') {
+      state.audioContext = new AudioCtx();
+    }
+
+    if (state.audioContext.state === 'suspended') {
+      await state.audioContext.resume();
+    }
+
+    state.audioArmed = state.audioContext.state === 'running';
+    return state.audioArmed;
+  } catch (_) {
+    state.audioArmed = false;
+    return false;
+  }
 }
 
-function terminalTone(kind = 'output') {
-  if (!state.audioArmed || !state.audioContext) return;
+async function terminalTone(kind = 'output') {
+  const ready = await unlockAudio();
+  if (!ready || !state.audioContext) return;
+
   try {
     const ctx = state.audioContext;
     const now = ctx.currentTime;
@@ -99,8 +114,10 @@ function terminalTone(kind = 'output') {
   } catch (_) {}
 }
 
-function playTTTMoveTone(mark) {
-  if (!state.audioArmed || !state.audioContext) return;
+async function playTTTMoveTone(mark) {
+  const ready = await unlockAudio();
+  if (!ready || !state.audioContext) return;
+
   try {
     const ctx = state.audioContext;
     const base = mark === 'X' ? [920, 1120] : [520, 410];
@@ -226,7 +243,7 @@ async function typeLine(text = '', speed = 28, className = '') {
   const line = addLine('', className);
   for (const char of text) {
     line.textContent += char;
-    if (char !== ' ' && char !== '\t') terminalTone('output');
+    if (char !== ' ' && char !== '\t') await terminalTone('output');
     await sleep(speed + Math.random() * 12);
   }
   return line;
@@ -660,7 +677,7 @@ async function handleTTTMove(value) {
   }
 
   state.tttBoard[move] = state.tttTurn;
-  playTTTMoveTone(state.tttTurn);
+  void playTTTMoveTone(state.tttTurn);
   renderTicTacToe();
   let result = tttResult(state.tttBoard);
   if (result) return finishInteractiveTicTacToe(result);
@@ -672,7 +689,7 @@ async function handleTTTMove(value) {
     renderTicTacToe();
     await sleep(420);
     state.tttBoard[chooseJoshuaMove(state.tttBoard, 'O')] = 'O';
-    playTTTMoveTone('O');
+    void playTTTMoveTone('O');
     renderTicTacToe();
     result = tttResult(state.tttBoard);
     if (result) return finishInteractiveTicTacToe(result);
@@ -740,7 +757,7 @@ async function runZeroPlayerTicTacToe() {
     while (!tttResult(state.tttBoard)) {
       const move = chooseJoshuaMove(state.tttBoard, state.tttTurn);
       state.tttBoard[move] = state.tttTurn;
-      playTTTMoveTone(state.tttTurn);
+      void playTTTMoveTone(state.tttTurn);
       renderTicTacToe();
       const delay = game < 4 ? 170 : game < 10 ? 80 : game < 20 ? 34 : 14;
       await sleep(delay);
@@ -1044,7 +1061,7 @@ async function submitValue(value) {
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  unlockAudio();
+  await unlockAudio();
   const value = input.value;
   if (!value.trim()) return;
   await submitValue(value);
@@ -1053,7 +1070,7 @@ form.addEventListener('submit', async event => {
 input.addEventListener('input', resizeInput);
 
 input.addEventListener('keydown', event => {
-  unlockAudio();
+  void unlockAudio();
 
   const keypadDigits = {
     Numpad7: '7', Numpad8: '8', Numpad9: '9',
@@ -1066,22 +1083,30 @@ input.addEventListener('keydown', event => {
     const digit = keypadDigits[event.code];
     input.value = digit;
     resizeInput();
-    terminalTone('input');
+    void terminalTone('input');
     void submitValue(digit);
     return;
   }
 
-  if (event.key.length === 1 || event.key === 'Backspace') terminalTone('input');
+  if (event.key.length === 1 || event.key === 'Backspace') void terminalTone('input');
 });
 
 voiceSwitch?.addEventListener('click', () => {
-  unlockAudio();
+  void unlockAudio();
   setVoiceEnabled(!state.voiceEnabled);
 });
 
 document.addEventListener('pointerdown', event => {
-  unlockAudio();
+  void unlockAudio();
   if (!event.target.closest('.speaker-box') && !state.busy) input.focus();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) void unlockAudio();
+});
+
+window.addEventListener('focus', () => {
+  void unlockAudio();
 });
 
 setVoiceEnabled(true);
