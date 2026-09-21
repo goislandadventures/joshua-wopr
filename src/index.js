@@ -53,6 +53,29 @@ const JOSHUA_MOVIE_SOUND_IDS = new Set([
   259734, 259735, 259737, 259741, 259739,
 ]);
 
+const JOSHUA_MOVIE_SOUND_META = new Map([
+  [259742, 'although primary goal has not yet been achieved solution is near'],
+  [259744, 'could not find you in seattle and no terminal is in operation at your classified address'],
+  [259743, 'greetings professor falken'],
+  [259740, 'how about a nice game of chess'],
+  [259738, 'is this a game or is it real whats the difference'],
+  [259736, 'people sometimes make mistakes yes they do'],
+  [259734, 'shall we play a game'],
+  [259735, 'strange game the only winning move is not to play'],
+  [259737, 'what is the primary goal to win the game'],
+  [259741, 'wouldnt you prefer a good game of chess'],
+  [259739, 'you are a hard man to reach'],
+]);
+
+function normalizeSoundText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function extractText(data) {
   if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
   const chunks = [];
@@ -134,22 +157,14 @@ export default {
         return json({ error: 'Unknown movie sound' }, 404);
       }
 
-      const soundPages = {
-        259742: 'https://www.101soundboards.com/sounds/259742-although-primary-goal-has-not-yet-been-achieved-solution-is-near',
-        259744: 'https://www.101soundboards.com/sounds/259744-could-not-find-you-in-seattle-and-no-terminal-is-in-operation-at-your-classified-address',
-        259743: 'https://www.101soundboards.com/sounds/259743-greetings-professor-falken',
-        259740: 'https://www.101soundboards.com/sounds/259740-how-about-a-nice-game-of-chess',
-        259738: 'https://www.101soundboards.com/sounds/259738-is-this-a-game-or-is-it-real-whats-the-difference',
-        259736: 'https://www.101soundboards.com/sounds/259736-people-sometimes-make-mistakes-yes-they-do',
-        259734: 'https://www.101soundboards.com/sounds/259734-shall-we-play-a-game',
-        259735: 'https://www.101soundboards.com/sounds/259735-strange-game-the-only-winning-move-is-not-to-play',
-        259737: 'https://www.101soundboards.com/sounds/259737-what-is-the-primary-goal-to-win-the-game',
-        259741: 'https://www.101soundboards.com/sounds/259741-wouldnt-you-prefer-a-good-game-of-chess',
-        259739: 'https://www.101soundboards.com/sounds/259739-you-are-a-hard-man-to-reach',
-      };
+      const targetText = JOSHUA_MOVIE_SOUND_META.get(id) || '';
+      const boardIds = [26218, 25013, 34786];
 
-      const fetchBinary = async (audioUrl) => {
-        const response = await fetch(audioUrl, {
+      const fetchAudioCandidate = async (candidateUrl) => {
+        if (!candidateUrl) return null;
+
+        const resolved = new URL(candidateUrl, 'https://www.101soundboards.com').toString();
+        const response = await fetch(resolved, {
           headers: {
             'user-agent': 'Mozilla/5.0',
             'referer': 'https://www.101soundboards.com/',
@@ -163,108 +178,81 @@ export default {
       };
 
       try {
-        // Primary path: current board JSON contains fresh signed sound_file_url values.
-        const boardResponse = await fetch(
-          `https://www.101soundboards.com/api/v1/boards/${JOSHUA_MOVIE_BOARD_ID}`,
-          {
-            headers: {
-              'user-agent': 'Mozilla/5.0',
-              'accept': 'application/json,text/plain,*/*',
-            },
-            redirect: 'follow',
-          }
-        );
-
-        if (boardResponse.ok) {
-          const raw = await boardResponse.text();
-          let relativeUrl = null;
-
-          try {
-            const board = JSON.parse(raw);
-            const sounds = Array.isArray(board?.sounds)
-              ? board.sounds
-              : Array.isArray(board?.data?.sounds)
-                ? board.data.sounds
-                : [];
-
-            const sound = sounds.find(item => Number(item?.id) === id);
-            if (typeof sound?.sound_file_url === 'string') {
-              relativeUrl = sound.sound_file_url;
+        for (const boardId of boardIds) {
+          const boardResponse = await fetch(
+            `https://www.101soundboards.com/api/v1/boards/${boardId}`,
+            {
+              headers: {
+                'user-agent': 'Mozilla/5.0',
+                'accept': 'application/json,text/plain,*/*',
+              },
+              redirect: 'follow',
             }
-          } catch (_) {}
+          );
 
-          // Raw-text fallback in case the API envelope changes but still contains
-          // id + sound_file_url records.
-          if (!relativeUrl) {
-            const escaped = raw.replace(/\\\//g, '/').replace(/\\u0026/g, '&');
-            const idNeedle = '"id":' + id;
-            const start = escaped.indexOf(idNeedle);
+          if (!boardResponse.ok) continue;
 
-            if (start >= 0) {
-              const windowText = escaped.slice(start, start + 5000);
-              const match = windowText.match(/"sound_file_url"\s*:\s*"([^"]+)"/i);
-              if (match?.[1]) relativeUrl = match[1];
-            }
+          const board = await boardResponse.json().catch(() => null);
+          const sounds = Array.isArray(board?.sounds)
+            ? board.sounds
+            : Array.isArray(board?.data?.sounds)
+              ? board.data.sounds
+              : [];
+
+          if (!sounds.length) continue;
+
+          let candidates = [];
+
+          // Exact ID wins on the user's JOSHUA board.
+          const exactById = sounds.find(sound => Number(sound?.id) === id);
+          if (exactById) candidates.push(exactById);
+
+          // Fallback boards are matched by actual movie-line text.
+          if (targetText) {
+            const target = normalizeSoundText(targetText);
+
+            const exactText = sounds.filter(sound =>
+              normalizeSoundText(sound?.sound_transcript) === target
+            );
+
+            const closeText = sounds.filter(sound => {
+              const transcript = normalizeSoundText(sound?.sound_transcript);
+              if (!transcript) return false;
+              return (
+                transcript.includes(target) ||
+                target.includes(transcript)
+              );
+            });
+
+            candidates.push(...exactText, ...closeText);
           }
 
-          if (relativeUrl) {
-            const resolved = new URL(relativeUrl, 'https://www.101soundboards.com').toString();
-            const audio = await fetchBinary(resolved);
+          // Remove duplicate candidate objects by ID.
+          const seen = new Set();
+          candidates = candidates.filter(sound => {
+            const key = Number(sound?.id);
+            if (!Number.isFinite(key) || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
 
-            if (audio) {
+          for (const sound of candidates) {
+            // Prefer the rendered signed MP3, then the site's signed download route.
+            const urls = [sound?.sound_file_url, sound?.download_url];
+
+            for (const candidateUrl of urls) {
+              const audio = await fetchAudioCandidate(candidateUrl);
+              if (!audio) continue;
+
               return new Response(audio.body, {
                 status: 200,
                 headers: {
                   'content-type': audio.headers.get('content-type') || 'audio/mpeg',
-                  'cache-control': 'public, max-age=1800',
-                  'x-joshua-audio-source': '101soundboards-board-api',
-                  'x-joshua-sound-id': String(id),
-                },
-              });
-            }
-          }
-        }
-
-        // Fallback: inspect the individual sound page for its current rendered MP3.
-        const pageResponse = await fetch(soundPages[id], {
-          headers: {
-            'user-agent': 'Mozilla/5.0',
-            'accept': 'text/html,application/xhtml+xml',
-          },
-          redirect: 'follow',
-        });
-
-        if (pageResponse.ok) {
-          const rawPage = await pageResponse.text();
-          const page = rawPage
-            .replace(/&amp;/g, '&')
-            .replace(/\\u0026/g, '&')
-            .replace(/\\\//g, '/');
-
-          const patterns = [
-            /https:\/\/www\.101soundboards\.com\/storage\/board_sounds_rendered\/[^"'<>\s]+\.mp3[^"'<>\s]*/i,
-            /\/storage\/board_sounds_rendered\/[^"'<>\s]+\.mp3[^"'<>\s]*/i,
-            /"sound_file_url"\s*:\s*"([^"]+)"/i,
-          ];
-
-          for (const pattern of patterns) {
-            const match = page.match(pattern);
-            if (!match) continue;
-            const candidate = (match[1] || match[0])
-              .replace(/\\u0026/g, '&')
-              .replace(/\\\//g, '/');
-
-            const resolved = new URL(candidate, 'https://www.101soundboards.com').toString();
-            const audio = await fetchBinary(resolved);
-
-            if (audio) {
-              return new Response(audio.body, {
-                status: 200,
-                headers: {
-                  'content-type': audio.headers.get('content-type') || 'audio/mpeg',
-                  'cache-control': 'public, max-age=1800',
-                  'x-joshua-audio-source': '101soundboards-sound-page',
-                  'x-joshua-sound-id': String(id),
+                  'cache-control': 'public, max-age=900',
+                  'x-joshua-audio-source': '101soundboards',
+                  'x-joshua-source-board': String(boardId),
+                  'x-joshua-source-sound': String(sound.id),
+                  'x-joshua-requested-sound': String(id),
                 },
               });
             }
@@ -274,7 +262,7 @@ export default {
         return json({
           error: 'Movie audio unavailable',
           sound_id: id,
-          sound_page: soundPages[id],
+          target: targetText,
         }, 502);
       } catch (error) {
         return json({
