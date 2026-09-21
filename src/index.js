@@ -126,34 +126,52 @@ export default {
       const text = typeof body?.text === 'string' ? body.text.trim().slice(0, 700) : '';
       if (!text) return json({ error: 'No text' }, 400);
 
-      const upstream = await fetch('https://api.openai.com/v1/audio/speech', {
-        method: 'POST',
-        headers: {
-          'authorization': `Bearer ${env.OPENAI_API_KEY}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini-tts',
-          voice: 'onyx',
-          input: text,
-          instructions: JOSHUA_VOICE_INSTRUCTIONS,
-          response_format: 'mp3',
-          speed: 0.82,
-        }),
+      const speechRequest = async (payload) => {
+        const response = await fetch('https://api.openai.com/v1/audio/speech', {
+          method: 'POST',
+          headers: {
+            'authorization': `Bearer ${env.OPENAI_API_KEY}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (response.ok && response.body) return { response, error: null };
+
+        const data = await response.json().catch(() => null);
+        return { response, error: data?.error || null };
+      };
+
+      let attempt = await speechRequest({
+        model: 'gpt-4o-mini-tts',
+        voice: 'onyx',
+        input: text,
+        instructions: JOSHUA_VOICE_INSTRUCTIONS,
+        response_format: 'mp3',
+        speed: 0.82,
       });
 
-      if (!upstream.ok || !upstream.body) {
-        const data = await upstream.json().catch(() => null);
+      if (!attempt.response.ok && (attempt.response.status === 400 || attempt.response.status === 404)) {
+        attempt = await speechRequest({
+          model: 'tts-1',
+          voice: 'onyx',
+          input: text,
+          response_format: 'mp3',
+          speed: 0.82,
+        });
+      }
+
+      if (!attempt.response.ok || !attempt.response.body) {
         return json({
           error: 'Voice generation failed',
-          status: upstream.status,
-          code: data?.error?.code || null,
-          type: data?.error?.type || null,
-          detail: typeof data?.error?.message === 'string' ? data.error.message.slice(0, 240) : null,
+          status: attempt.response.status,
+          code: attempt.error?.code || null,
+          type: attempt.error?.type || null,
+          detail: typeof attempt.error?.message === 'string' ? attempt.error.message.slice(0, 240) : null,
         }, 502);
       }
 
-      return new Response(upstream.body, {
+      return new Response(attempt.response.body, {
         status: 200,
         headers: {
           'content-type': 'audio/mpeg',
