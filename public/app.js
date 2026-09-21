@@ -16,7 +16,7 @@ const voiceStateEl = document.querySelector('#voice-state');
 
 const state = {
   busy: false,
-  mode: 'logon',
+  mode: 'boot',
   falkenStage: 0,
   aiAvailable: null,
   conversation: [],
@@ -117,6 +117,38 @@ function terminalTone() {
     gain.connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.022);
+  } catch (_) {}
+}
+
+function playConnectChirp(step = 0) {
+  const ctx = state.audioContext;
+  if (!ctx || ctx.state !== 'running') return;
+
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    const tones = [1480, 980, 1260, 760];
+    const freq = tones[step % tones.length];
+
+    osc.type = step % 2 === 0 ? 'square' : 'sine';
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.72, now + 0.055);
+
+    filter.type = 'bandpass';
+    filter.frequency.value = freq;
+    filter.Q.value = 1.6;
+
+    gain.gain.setValueAtTime(0.028, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.070);
   } catch (_) {}
 }
 
@@ -287,6 +319,40 @@ function clearTerminal() {
   trajectories.innerHTML = '';
   impacts.innerHTML = '';
   if (targetLabels) targetLabels.innerHTML = '';
+}
+
+async function runStartupSequence() {
+  state.busy = true;
+  state.mode = 'boot';
+  setPrompt('');
+  showInput(false);
+  clearTerminal();
+
+  const glass = document.querySelector('.glass');
+  glass?.classList.add('connecting');
+
+  await sleep(260);
+
+  // The film's first connection is deliberately anonymous: no banner,
+  // company name, or BIOS text—just communications activity and a prompt.
+  for (let pulse = 0; pulse < 3; pulse++) {
+    terminal.innerHTML = '';
+    const cursor = addLine('█', 'boot-cursor');
+    cursor.style.opacity = '1';
+    playConnectChirp(pulse);
+    await sleep(150 + pulse * 40);
+    cursor.style.opacity = '0';
+    await sleep(125);
+  }
+
+  terminal.innerHTML = '';
+  await sleep(180);
+  glass?.classList.remove('connecting');
+
+  state.mode = 'logon';
+  setPrompt('LOGON:');
+  state.busy = false;
+  showInput(true);
 }
 
 async function failedLogon() {
@@ -1136,6 +1202,7 @@ window.addEventListener('focus', () => {
 });
 
 setVoiceEnabled(true);
-setPrompt('LOGON:');
+setPrompt('');
 resizeInput();
-showInput(true);
+showInput(false);
+void runStartupSequence();
