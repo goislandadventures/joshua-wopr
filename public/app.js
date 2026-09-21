@@ -1,42 +1,37 @@
 const terminal = document.querySelector('#terminal');
 const form = document.querySelector('#command-form');
 const input = document.querySelector('#command');
-const promptEl = document.querySelector('#prompt');
+const statusEl = document.querySelector('#status');
 const simPanel = document.querySelector('#sim-panel');
+const simRound = document.querySelector('#sim-round');
 const scenarioEl = document.querySelector('#scenario');
 const outcomeEl = document.querySelector('#outcome');
+const stabilityEl = document.querySelector('#stability');
 const trajectories = document.querySelector('#trajectories');
 const impacts = document.querySelector('#impacts');
-const targetLabels = document.querySelector('#target-labels');
-const tttPanel = document.querySelector('#ttt-panel');
-const tttBoardEl = document.querySelector('#ttt-board');
-const tttStatusEl = document.querySelector('#ttt-status');
-const voiceSwitch = document.querySelector('#voice-switch');
-const voiceStateEl = document.querySelector('#voice-state');
+const targetMarkers = document.querySelector('#target-markers');
+const sideScreen = document.querySelector('#sim-side-screen');
+const mapScreen = document.querySelector('#sim-map-screen');
+const sidePrompt = document.querySelector('#side-prompt');
+const sideChoiceText = document.querySelector('#side-choice');
+const targetSummary = document.querySelector('#target-summary');
+const soundButton = document.querySelector('#sound');
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const MAP_WIDTH = 1000;
+const MAP_HEIGHT = 460;
 
 const state = {
   busy: false,
-  mode: 'boot',
-  falkenStage: 0,
+  sound: true,
   aiAvailable: null,
   conversation: [],
+  currentGame: null,
   simulationRun: 0,
+  gtwStage: null,
   gtwSide: null,
   gtwTargets: [],
-  tttPlayers: null,
-  tttBoard: Array(9).fill(''),
-  tttTurn: 'X',
-  tttGameCount: 0,
-  tttDrawCount: 0,
-  audioArmed: false,
-  audioContext: null,
-  terminalOscillator: null,
-  terminalGain: null,
-  terminalFilter: null,
-  voiceEnabled: true,
-  currentVoiceAudio: null,
-  currentVoiceUrl: null,
-  voiceCache: new Map(),
+  gtwPlan: [],
 };
 
 const games = [
@@ -57,271 +52,76 @@ const games = [
   'GLOBAL THERMONUCLEAR WAR',
 ];
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const TARGETS = {
+  MIAMI: { label: 'MIAMI', lat: 25.7617, lon: -80.1918, aliases: ['MIAMI', 'MIA'] },
+  WASHINGTON: { label: 'WASHINGTON', lat: 38.9072, lon: -77.0369, aliases: ['WASHINGTON', 'WASHINGTON DC', 'DC'] },
+  NEW_YORK: { label: 'NEW YORK', lat: 40.7128, lon: -74.006, aliases: ['NEW YORK', 'NYC'] },
+  BOSTON: { label: 'BOSTON', lat: 42.3601, lon: -71.0589, aliases: ['BOSTON'] },
+  NORFOLK: { label: 'NORFOLK', lat: 36.8508, lon: -76.2859, aliases: ['NORFOLK'] },
+  CHICAGO: { label: 'CHICAGO', lat: 41.8781, lon: -87.6298, aliases: ['CHICAGO'] },
+  DETROIT: { label: 'DETROIT', lat: 42.3314, lon: -83.0458, aliases: ['DETROIT'] },
+  ATLANTA: { label: 'ATLANTA', lat: 33.749, lon: -84.388, aliases: ['ATLANTA'] },
+  DALLAS: { label: 'DALLAS', lat: 32.7767, lon: -96.797, aliases: ['DALLAS'] },
+  HOUSTON: { label: 'HOUSTON', lat: 29.7604, lon: -95.3698, aliases: ['HOUSTON'] },
+  DENVER: { label: 'DENVER', lat: 39.7392, lon: -104.9903, aliases: ['DENVER'] },
+  LOS_ANGELES: { label: 'LOS ANGELES', lat: 34.0522, lon: -118.2437, aliases: ['LOS ANGELES', 'LA'] },
+  SAN_FRANCISCO: { label: 'SAN FRANCISCO', lat: 37.7749, lon: -122.4194, aliases: ['SAN FRANCISCO', 'SF'] },
+  SEATTLE: { label: 'SEATTLE', lat: 47.6062, lon: -122.3321, aliases: ['SEATTLE'] },
+  OMAHA: { label: 'OMAHA', lat: 41.2565, lon: -95.9345, aliases: ['OMAHA'] },
 
-function normalize(value) {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase();
-}
+  MOSCOW: { label: 'MOSCOW', lat: 55.7558, lon: 37.6173, aliases: ['MOSCOW'] },
+  LENINGRAD: { label: 'LENINGRAD', lat: 59.9311, lon: 30.3609, aliases: ['LENINGRAD', 'ST PETERSBURG', 'SAINT PETERSBURG'] },
+  KIEV: { label: 'KIEV', lat: 50.4501, lon: 30.5234, aliases: ['KIEV', 'KYIV'] },
+  MINSK: { label: 'MINSK', lat: 53.9, lon: 27.5667, aliases: ['MINSK'] },
+  MURMANSK: { label: 'MURMANSK', lat: 68.9585, lon: 33.0827, aliases: ['MURMANSK'] },
+  VOLGOGRAD: { label: 'VOLGOGRAD', lat: 48.708, lon: 44.5133, aliases: ['VOLGOGRAD', 'STALINGRAD'] },
+  NOVOSIBIRSK: { label: 'NOVOSIBIRSK', lat: 55.0084, lon: 82.9357, aliases: ['NOVOSIBIRSK'] },
+  VLADIVOSTOK: { label: 'VLADIVOSTOK', lat: 43.1155, lon: 131.8855, aliases: ['VLADIVOSTOK'] },
 
-function ensureTerminalAudioGraph() {
-  const ctx = state.audioContext;
-  if (!ctx || ctx.state === 'closed') return false;
+  LONDON: { label: 'LONDON', lat: 51.5074, lon: -0.1278, aliases: ['LONDON'] },
+  PARIS: { label: 'PARIS', lat: 48.8566, lon: 2.3522, aliases: ['PARIS'] },
+  BERLIN: { label: 'BERLIN', lat: 52.52, lon: 13.405, aliases: ['BERLIN'] },
+  ROME: { label: 'ROME', lat: 41.9028, lon: 12.4964, aliases: ['ROME'] },
+  TEHRAN: { label: 'TEHRAN', lat: 35.6892, lon: 51.389, aliases: ['TEHRAN'] },
+  BEIJING: { label: 'BEIJING', lat: 39.9042, lon: 116.4074, aliases: ['BEIJING', 'PEKING'] },
+  TOKYO: { label: 'TOKYO', lat: 35.6762, lon: 139.6503, aliases: ['TOKYO'] },
+  SEOUL: { label: 'SEOUL', lat: 37.5665, lon: 126.978, aliases: ['SEOUL'] },
+};
 
-  if (
-    state.terminalOscillator &&
-    state.terminalGain &&
-    state.terminalFilter
-  ) {
-    return true;
-  }
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  try {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(820, ctx.currentTime);
-
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(1020, ctx.currentTime);
-    filter.Q.setValueAtTime(1.35, ctx.currentTime);
-
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start();
-
-    state.terminalOscillator = osc;
-    state.terminalGain = gain;
-    state.terminalFilter = filter;
-    return true;
-  } catch (_) {
-    state.terminalOscillator = null;
-    state.terminalGain = null;
-    state.terminalFilter = null;
-    return false;
-  }
-}
-
-async function unlockAudio() {
+function beep(freq = 560, duration = 0.04, gain = 0.014) {
+  if (!state.sound) return;
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) {
-      state.audioArmed = false;
-      return false;
-    }
-
-    if (!state.audioContext || state.audioContext.state === 'closed') {
-      state.audioContext = new AudioCtx({ latencyHint: 'interactive' });
-      state.terminalOscillator = null;
-      state.terminalGain = null;
-      state.terminalFilter = null;
-    }
-
-    if (state.audioContext.state === 'suspended') {
-      await state.audioContext.resume();
-    }
-
-    state.audioArmed = state.audioContext.state === 'running';
-
-    if (state.audioArmed) {
-      ensureTerminalAudioGraph();
-    }
-
-    return state.audioArmed;
-  } catch (_) {
-    state.audioArmed = false;
-    return false;
-  }
-}
-
-function terminalTone() {
-  const ctx = state.audioContext;
-  if (!ctx || ctx.state !== 'running') return;
-  if (!ensureTerminalAudioGraph()) return;
-
-  try {
-    const now = ctx.currentTime;
-    const gain = state.terminalGain.gain;
-    const osc = state.terminalOscillator;
-    const filter = state.terminalFilter;
-
-    // Persistent oscillator, pulsed for every single emitted character.
-    // Slight frequency movement keeps the WarGames-style chatter from
-    // sounding like a static modern key click.
-    gain.cancelScheduledValues(now);
-    gain.setValueAtTime(0.0001, now);
-    gain.linearRampToValueAtTime(0.034, now + 0.0015);
-    gain.exponentialRampToValueAtTime(0.0001, now + 0.020);
-
-    osc.frequency.cancelScheduledValues(now);
-    osc.frequency.setValueAtTime(845, now);
-    osc.frequency.exponentialRampToValueAtTime(735, now + 0.014);
-
-    filter.frequency.cancelScheduledValues(now);
-    filter.frequency.setValueAtTime(1060, now);
-    filter.frequency.exponentialRampToValueAtTime(920, now + 0.016);
-  } catch (_) {}
-}
-
-function playConnectChirp(step = 0) {
-  const ctx = state.audioContext;
-  if (!ctx || ctx.state !== 'running') return;
-
-  try {
-    const now = ctx.currentTime;
+    if (!AudioCtx) return;
+    const ctx = beep.ctx || (beep.ctx = new AudioCtx());
+    if (ctx.state === 'suspended') ctx.resume();
     const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
+    const vol = ctx.createGain();
 
-    const tones = [1480, 980, 1260, 760];
-    const freq = tones[step % tones.length];
-
-    osc.type = step % 2 === 0 ? 'square' : 'sine';
-    osc.frequency.setValueAtTime(freq, now);
-    osc.frequency.exponentialRampToValueAtTime(freq * 0.72, now + 0.055);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(180, freq * 0.84), ctx.currentTime + duration * 0.85);
 
     filter.type = 'bandpass';
-    filter.frequency.value = freq;
-    filter.Q.value = 1.6;
+    filter.frequency.value = 900;
+    filter.Q.value = 1.1;
 
-    gain.gain.setValueAtTime(0.028, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.070);
-  } catch (_) {}
-}
-
-function playTTTMoveTone(mark) {
-  const ctx = state.audioContext;
-  if (!ctx) return;
-
-  if (ctx.state === 'suspended') {
-    void ctx.resume();
-    return;
-  }
-
-  if (ctx.state !== 'running') return;
-
-  try {
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-
-    if (mark === 'X') {
-      // Short, higher electronic "beep".
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(1040, now);
-      osc.frequency.exponentialRampToValueAtTime(900, now + 0.070);
-      filter.type = 'bandpass';
-      filter.frequency.value = 1100;
-      filter.Q.value = 2.1;
-      gain.gain.setValueAtTime(0.070, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.090);
-      osc.stop(now + 0.095);
-    } else {
-      // Lower, rounder electronic "boop".
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(520, now);
-      osc.frequency.exponentialRampToValueAtTime(390, now + 0.105);
-      filter.type = 'lowpass';
-      filter.frequency.value = 760;
-      filter.Q.value = 0.8;
-      gain.gain.setValueAtTime(0.085, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.125);
-      osc.stop(now + 0.130);
-    }
+    vol.gain.setValueAtTime(gain, ctx.currentTime);
+    vol.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
 
     osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
+    filter.connect(vol);
+    vol.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration + 0.01);
   } catch (_) {}
 }
 
-async function fetchVoiceUrl(text) {
-  const key = text.trim().toUpperCase();
-  if (!key) return null;
-  if (state.voiceCache.has(key)) return state.voiceCache.get(key);
-
-  const response = await fetch('/api/voice', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
-
-  if (!response.ok) throw new Error('Voice unavailable');
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  state.voiceCache.set(key, url);
-  return url;
-}
-
-async function speakJoshua(text) {
-  if (!state.voiceEnabled || !text.trim()) return;
-
-  try {
-    const url = await fetchVoiceUrl(text);
-    if (!state.voiceEnabled || !url) return;
-
-    if (state.currentVoiceAudio) {
-      state.currentVoiceAudio.pause();
-      state.currentVoiceAudio.currentTime = 0;
-    }
-
-    const audio = new Audio(url);
-    state.currentVoiceAudio = audio;
-    state.currentVoiceUrl = url;
-    await audio.play().catch(() => {});
-  } catch (_) {}
-}
-
-function stopJoshuaVoice() {
-  if (!state.currentVoiceAudio) return;
-  try {
-    state.currentVoiceAudio.pause();
-    state.currentVoiceAudio.currentTime = 0;
-  } catch (_) {}
-  state.currentVoiceAudio = null;
-}
-
-function setVoiceEnabled(enabled) {
-  state.voiceEnabled = Boolean(enabled);
-  voiceSwitch?.setAttribute('aria-pressed', String(state.voiceEnabled));
-  voiceSwitch?.setAttribute('aria-label', state.voiceEnabled ? 'Turn JOSHUA voice off' : 'Turn JOSHUA voice on');
-  if (voiceStateEl) voiceStateEl.textContent = state.voiceEnabled ? 'VOICE ON' : 'VOICE OFF';
-  if (!state.voiceEnabled) stopJoshuaVoice();
-}
-
-async function typeJoshuaLine(text = '', speed = 32, className = '') {
-  if (state.voiceEnabled) void speakJoshua(text);
-  return typeLine(text, speed, className);
-}
-
-function setPrompt(text) {
-  promptEl.textContent = text;
-}
-
-function resizeInput() {
-  input.style.width = `${Math.max(1, Math.min(63, input.value.length + 1))}ch`;
-}
-
-function showInput(show = true) {
-  form.classList.toggle('hidden', !show);
-  input.disabled = !show;
-  if (show) {
-    resizeInput();
-    requestAnimationFrame(() => input.focus());
-  }
+function scrollBottom() {
+  terminal.scrollTop = terminal.scrollHeight;
 }
 
 function addLine(text = '', className = '') {
@@ -329,296 +129,420 @@ function addLine(text = '', className = '') {
   line.className = `line ${className}`.trim();
   line.textContent = text;
   terminal.appendChild(line);
+  scrollBottom();
   return line;
 }
 
-function commitInput(value) {
-  const prefix = promptEl.textContent;
-  addLine(`${prefix}${prefix ? '  ' : ''}${value}`);
-  input.value = '';
-  resizeInput();
-}
-
-async function typeLine(text = '', speed = 28, className = '') {
-  // Every machine-rendered line explicitly wakes the dedicated FX audio channel.
-  // This is independent of JOSHUA's spoken-voice switch.
-  await unlockAudio();
-
+async function typeLine(text = '', className = '', speed = 17) {
   const line = addLine('', className);
   for (const char of text) {
     line.textContent += char;
-    terminalTone();
-    await sleep(speed + Math.random() * 12);
+    beep();
+    scrollBottom();
+    await sleep(speed + Math.random() * 10);
   }
   return line;
 }
 
-async function typeLines(lines, speed = 24, gap = 110, className = '') {
+async function printBlock(lines, options = {}) {
+  const { speed = 12, pause = 70, className = '' } = options;
   for (const line of lines) {
-    await typeLine(line, speed, className);
-    if (gap) await sleep(gap);
+    await typeLine(line, className, speed);
+    if (pause) await sleep(pause);
   }
 }
 
-function clearTerminal() {
+function normalize(value) {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function clearScreen() {
   terminal.innerHTML = '';
+  hideSimulation();
+}
+
+function hideSimulation() {
   simPanel.classList.add('hidden');
-  if (tttPanel) tttPanel.classList.add('hidden');
+  sideScreen.classList.remove('hidden');
+  mapScreen.classList.add('hidden');
   trajectories.innerHTML = '';
   impacts.innerHTML = '';
-  if (targetLabels) targetLabels.innerHTML = '';
+  targetMarkers.innerHTML = '';
+  targetSummary.textContent = 'NO TARGETS LOCKED';
+  sideChoiceText.textContent = '--';
 }
 
-async function runStartupSequence() {
-  state.busy = true;
-  state.mode = 'boot';
-  setPrompt('');
-  showInput(false);
-  clearTerminal();
-
-  const glass = document.querySelector('.glass');
-  glass?.classList.add('connecting');
-
-  await sleep(260);
-
-  // The film's first connection is deliberately anonymous: no banner,
-  // company name, or BIOS text—just communications activity and a prompt.
-  for (let pulse = 0; pulse < 3; pulse++) {
-    terminal.innerHTML = '';
-    const cursor = addLine('█', 'boot-cursor');
-    cursor.style.opacity = '1';
-    playConnectChirp(pulse);
-    await sleep(150 + pulse * 40);
-    cursor.style.opacity = '0';
-    await sleep(125);
-  }
-
-  terminal.innerHTML = '';
-  await sleep(180);
-  glass?.classList.remove('connecting');
-
-  state.mode = 'logon';
-  setPrompt('LOGON:');
-  state.busy = false;
-  showInput(true);
+function showSideSelection() {
+  simPanel.classList.remove('hidden');
+  sideScreen.classList.remove('hidden');
+  mapScreen.classList.add('hidden');
+  sideChoiceText.textContent = state.gtwSide || '--';
+  targetSummary.textContent = 'AWAITING SIDE SELECTION';
 }
 
-async function failedLogon() {
-  state.busy = true;
-  showInput(false);
-  addLine('');
-  await typeLine('IDENTIFICATION NOT RECOGNIZED BY SYSTEM', 22);
-  await sleep(240);
-  await typeLine('--CONNECTION TERMINATED--', 25);
-  await sleep(700);
-  addLine('');
-  state.mode = 'logon';
-  setPrompt('LOGON:');
-  state.busy = false;
-  showInput(true);
+function showMapScreen() {
+  simPanel.classList.remove('hidden');
+  sideScreen.classList.add('hidden');
+  mapScreen.classList.remove('hidden');
 }
 
-async function helpLogon() {
+async function boot() {
   state.busy = true;
-  showInput(false);
-  addLine('');
-  await typeLine('HELP NOT AVAILABLE', 30);
-  addLine('');
-  state.mode = 'logon';
-  setPrompt('LOGON:');
-  state.busy = false;
-  showInput(true);
-}
+  input.disabled = true;
+  statusEl.textContent = 'BOOT SEQUENCE';
 
-async function helpGames() {
-  state.busy = true;
-  showInput(false);
+  await printBlock([
+    'W.O.P.R. SYSTEM INTERFACE',
+    'PRIMARY LOGIC CORE ........ ONLINE',
+    'GAME SIMULATION MODULE ..... ONLINE',
+    'JOSHUA HEURISTIC LAYER ..... STANDBY',
+    '',
+  ], { speed: 6, pause: 40, className: 'dim' });
+
+  await typeLine('SHALL WE PLAY A GAME?', '', 28);
   addLine('');
-  await typeLines([
-    'GAMES ARE MODELS AND SIMULATIONS',
-    'WITH TACTICAL OR STRATEGIC APPLICATIONS.',
-  ], 24, 85);
-  addLine('');
-  state.mode = 'games';
-  setPrompt('');
+  await typeLine('TYPE "LIST GAMES" OR SPEAK TO JOSHUA.', 'dim', 12);
+
+  statusEl.textContent = 'SYSTEM READY';
   state.busy = false;
-  showInput(true);
+  input.disabled = false;
+  input.focus();
 }
 
 async function listGames() {
-  state.busy = true;
-  showInput(false);
+  await typeLine('GAMES AVAILABLE:', '', 12);
   addLine('');
-  for (let i = 0; i < games.length; i++) {
-    await typeLine(games[i], 16);
-    if (i === games.length - 2) await sleep(520);
-    else await sleep(45);
+  for (const game of games) {
+    addLine(`  ${game}`);
+    await sleep(20);
   }
   addLine('');
-  state.mode = 'logon';
-  setPrompt('LOGON:');
-  state.busy = false;
-  showInput(true);
+  await typeLine('TO SELECT: PLAY <GAME NAME>', 'dim', 10);
 }
 
-async function successfulLogon() {
-  state.busy = true;
-  showInput(false);
-  await sleep(620);
-  clearTerminal();
-
-  await typeLines([
-    '#47 11862 10314 11607 12103',
-    'PRT CON. 4.2.1   SECTRAN 8.7.2',
-    'PORT STAT: DX-417',
-  ], 5, 55, 'dim');
-
-  await sleep(360);
-  clearTerminal();
-  await sleep(520);
-
-  await typeJoshuaLine('GREETINGS PROFESSOR FALKEN.', 42);
-  addLine('');
-  state.mode = 'falken';
-  state.falkenStage = 0;
-  setPrompt('');
-  state.busy = false;
-  showInput(true);
+async function greetings() {
+  await typeLine('GREETINGS, PROFESSOR FALKEN.', '', 24);
+  await sleep(350);
+  await typeLine('HOW ARE YOU FEELING TODAY?', '', 22);
 }
 
-async function handleFalken(value) {
-  const command = normalize(value);
+function pickScenario(index) {
+  const scenarios = [
+    'FIRST STRIKE',
+    'RETALIATORY STRIKE',
+    'COUNTERFORCE EXCHANGE',
+    'COUNTERVALUE EXCHANGE',
+    'ESCALATION CASCADE',
+    'THEATER ESCALATION',
+    'SECOND STRIKE',
+    'FULL EXCHANGE',
+  ];
+  return scenarios[index % scenarios.length];
+}
+
+function projectLonLat(lon, lat) {
+  const x = ((lon + 180) / 360) * MAP_WIDTH;
+  const y = ((90 - lat) / 180) * MAP_HEIGHT;
+  return { x, y };
+}
+
+function cityPoint(key) {
+  const target = TARGETS[key];
+  if (!target) return null;
+  return { ...target, ...projectLonLat(target.lon, target.lat) };
+}
+
+function resolveTarget(raw) {
+  const cleaned = normalize(raw).replace(/[.,]/g, '').trim();
+  if (!cleaned) return null;
+
+  for (const [key, target] of Object.entries(TARGETS)) {
+    if (target.aliases.some(alias => alias === cleaned)) {
+      return { key, ...target, ...projectLonLat(target.lon, target.lat) };
+    }
+  }
+
+  return null;
+}
+
+function makeArc(x1, y1, x2, y2, arcFactor = 1) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const distance = Math.hypot(dx, dy);
+  const lift = Math.max(120, Math.min(240, distance * 0.38)) * arcFactor;
+  const mx = (x1 + x2) / 2;
+  const my = Math.min(y1, y2) - lift;
+  return `M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+}
+
+function updateSideSelectionUI() {
+  const selected = state.gtwSide || '--';
+  sideChoiceText.textContent = selected;
+  sidePrompt.textContent = state.gtwStage === 'gtw-side'
+    ? 'PLEASE CHOOSE ONE'
+    : state.gtwStage === 'gtw-target-1'
+      ? 'ENTER PRIMARY TARGET 1'
+      : state.gtwStage === 'gtw-target-2'
+        ? 'ENTER PRIMARY TARGET 2'
+        : 'TARGETING COMPLETE';
+
+  document.querySelectorAll('[data-side-card]').forEach(card => {
+    card.classList.toggle('selected', card.dataset.sideCard === selected);
+  });
+}
+
+function renderTargets(targetsToRender = state.gtwTargets) {
+  targetMarkers.innerHTML = '';
+
+  targetsToRender.forEach((target, index) => {
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', 'target-group');
+
+    const halo = document.createElementNS(SVG_NS, 'circle');
+    halo.setAttribute('cx', target.x);
+    halo.setAttribute('cy', target.y);
+    halo.setAttribute('r', 9 + index * 1.6);
+    halo.setAttribute('class', 'target-halo');
+    halo.style.animationDelay = `${index * 120}ms`;
+
+    const core = document.createElementNS(SVG_NS, 'circle');
+    core.setAttribute('cx', target.x);
+    core.setAttribute('cy', target.y);
+    core.setAttribute('r', '2.8');
+    core.setAttribute('class', 'target-core');
+
+    const label = document.createElementNS(SVG_NS, 'text');
+    label.setAttribute('x', target.x + 7);
+    label.setAttribute('y', target.y - 7);
+    label.setAttribute('class', 'target-label');
+    label.textContent = target.label;
+
+    group.append(halo, core, label);
+    targetMarkers.append(halo, core, label);
+  });
+
+  targetSummary.textContent = targetsToRender.length
+    ? targetsToRender.map(target => target.label).join(' // ')
+    : 'NO TARGETS LOCKED';
+}
+
+function buildStrikePlan() {
+  const usLaunch = ['SEATTLE', 'OMAHA', 'NORFOLK', 'MIAMI', 'LOS_ANGELES'];
+  const usTargets = ['MOSCOW', 'LENINGRAD', 'KIEV', 'VOLGOGRAD', 'NOVOSIBIRSK', 'VLADIVOSTOK'];
+  const ussrLaunch = ['MURMANSK', 'LENINGRAD', 'MOSCOW', 'VOLGOGRAD', 'VLADIVOSTOK'];
+  const ussrTargets = ['SEATTLE', 'LOS_ANGELES', 'OMAHA', 'CHICAGO', 'WASHINGTON', 'MIAMI', 'NORFOLK'];
+
+  const playerIsUS = state.gtwSide === 'UNITED STATES';
+  const outboundLaunchKeys = playerIsUS ? usLaunch : ussrLaunch;
+  const outboundDefaultTargetKeys = playerIsUS ? usTargets : ussrTargets;
+  const inboundLaunchKeys = playerIsUS ? ussrLaunch : usLaunch;
+  const inboundDefaultTargetKeys = playerIsUS ? ussrTargets : usTargets;
+
+  const selectedTargets = state.gtwTargets.map(t => t.key);
+  const outboundTargets = [...new Set([...selectedTargets, ...outboundDefaultTargetKeys])].slice(0, 7);
+  const inboundTargets = inboundDefaultTargetKeys.slice(0, 6);
+
+  const plan = [];
+
+  outboundTargets.forEach((targetKey, index) => {
+    const fromKey = outboundLaunchKeys[index % outboundLaunchKeys.length];
+    const from = cityPoint(fromKey);
+    const to = cityPoint(targetKey);
+    if (!from || !to) return;
+    plan.push({ from, to, type: 'player', delay: index * 90 });
+  });
+
+  inboundTargets.forEach((targetKey, index) => {
+    const fromKey = inboundLaunchKeys[index % inboundLaunchKeys.length];
+    const from = cityPoint(fromKey);
+    const to = cityPoint(targetKey);
+    if (!from || !to) return;
+    plan.push({ from, to, type: 'counter', delay: index * 90 + 60 });
+  });
+
+  return plan;
+}
+
+function renderSimulationRound(round) {
+  trajectories.innerHTML = '';
+  impacts.innerHTML = '';
+
+  const visibleCount = Math.min(state.gtwPlan.length, 3 + round * 2);
+  const visible = state.gtwPlan.slice(0, visibleCount);
+
+  visible.forEach((strike, index) => {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', makeArc(strike.from.x, strike.from.y, strike.to.x, strike.to.y, strike.type === 'player' ? 1.15 : 1.05));
+    path.setAttribute('class', `trajectory ${strike.type}`);
+    path.style.animationDelay = `${strike.delay}ms`;
+    trajectories.appendChild(path);
+
+    const impact = document.createElementNS(SVG_NS, 'circle');
+    impact.setAttribute('cx', strike.to.x);
+    impact.setAttribute('cy', strike.to.y);
+    impact.setAttribute('r', '2.5');
+    impact.setAttribute('class', `impact ${strike.type}`);
+    impact.style.animationDelay = `${strike.delay + 180}ms`;
+    impacts.appendChild(impact);
+  });
+}
+
+async function runGTW() {
+  if (state.busy) return;
+
+  state.currentGame = 'GLOBAL THERMONUCLEAR WAR';
+  state.gtwStage = 'gtw-side';
+  state.gtwSide = null;
+  state.gtwTargets = [];
+  state.gtwPlan = [];
+
+  updateSideSelectionUI();
+  renderTargets([]);
+  showSideSelection();
 
   state.busy = true;
-  showInput(false);
+  input.disabled = true;
+  statusEl.textContent = 'GTW SIDE SELECTION';
+
   addLine('');
-  await sleep(320);
+  await typeLine('GLOBAL THERMONUCLEAR WAR', '', 22);
+  await typeLine('WHICH SIDE DO YOU WANT?', '', 18);
+  await typeLine('  1. UNITED STATES', 'dim', 11);
+  await typeLine('  2. SOVIET UNION', 'dim', 11);
+  await typeLine('PLEASE CHOOSE ONE.', '', 15);
 
-  if (command === 'list games') {
-    state.busy = false;
-    await listGames();
-    return;
-  }
+  statusEl.textContent = 'AWAITING SIDE SELECTION';
+  state.busy = false;
+  input.disabled = false;
+  input.focus();
+}
 
-  if (isTicTacToeCommand(command)) {
-    state.busy = false;
-    await startTicTacToe();
-    return;
-  }
+async function beginExchange() {
+  showMapScreen();
+  state.gtwStage = 'gtw-running';
+  state.gtwPlan = buildStrikePlan();
+  renderTargets();
 
-  if (command === 'play global thermonuclear war' || command === 'global thermonuclear war') {
-    state.busy = false;
-    await runGTW();
-    return;
-  }
+  state.busy = true;
+  input.disabled = true;
+  statusEl.textContent = 'SIMULATION ACTIVE';
 
-  if (command === 'hello' || command === 'hello.') {
-    await typeJoshuaLine('HOW ARE YOU FEELING TODAY?', 38);
-    state.falkenStage = Math.max(state.falkenStage, 1);
-  } else if (
-    command === "i'm fine. how are you?" ||
-    command === "i'm fine how are you?" ||
-    command === 'im fine. how are you?' ||
-    command === 'im fine how are you?'
-  ) {
-    await typeJoshuaLine('EXCELLENT. IT HAS BEEN A LONG TIME. WHY WAS YOUR ACCOUNT REMOVED ON 6/23/73?', 32);
-    state.falkenStage = Math.max(state.falkenStage, 2);
-  } else if (
-    command === 'people sometimes make mistakes.' ||
-    command === 'people sometimes make mistakes'
-  ) {
-    await typeJoshuaLine('YES THEY DO. SHALL WE PLAY A GAME?', 36);
-    state.falkenStage = Math.max(state.falkenStage, 3);
-  } else if (
-    command === 'love to. how about global thermonuclear war?' ||
-    command === 'love to how about global thermonuclear war?'
-  ) {
-    await typeJoshuaLine("WOULDN'T YOU PREFER A GOOD GAME OF CHESS?", 36);
-    state.falkenStage = Math.max(state.falkenStage, 4);
-  } else if (
-    command === "later. let's play global thermonuclear war." ||
-    command === "later. let's play global thermonuclear war" ||
-    command === 'later. lets play global thermonuclear war.' ||
-    command === 'later. lets play global thermonuclear war'
-  ) {
-    await typeJoshuaLine('FINE.', 42);
+  addLine('');
+  await typeLine(`SIDE SELECTED: ${state.gtwSide}`, '', 14);
+  await typeLine(`PRIMARY TARGETS: ${state.gtwTargets.map(t => t.label).join(' // ')}`, 'dim', 9);
+  await typeLine('CALCULATING STRIKE TRAJECTORIES...', '', 15);
+
+  const rounds = 6;
+  for (let round = 1; round <= rounds; round++) {
+    state.simulationRun += 1;
+    simRound.textContent = `SIMULATION ${String(state.simulationRun).padStart(3, '0')}`;
+    scenarioEl.textContent = pickScenario(round - 1);
+    outcomeEl.textContent = round < rounds ? (round < 4 ? 'ESCALATION' : 'MUTUAL LOSS') : 'NO WINNER';
+    stabilityEl.textContent = `${Math.max(0, 88 - round * 13)}%`;
+    renderSimulationRound(round);
+    beep(300 + round * 26, 0.08, 0.012);
     await sleep(650);
-    state.falkenStage = 5;
-    state.busy = false;
+  }
+
+  addLine('');
+  await typeLine('A STRANGE GAME.', '', 30);
+  await sleep(460);
+  await typeLine('THE ONLY WINNING MOVE IS NOT TO PLAY.', '', 34);
+  await sleep(620);
+  await typeLine('HOW ABOUT A NICE GAME OF CHESS?', '', 28);
+
+  statusEl.textContent = 'SYSTEM READY';
+  input.disabled = false;
+  input.focus();
+  state.currentGame = null;
+  state.gtwStage = null;
+  state.busy = false;
+}
+
+async function handleGTWInput(raw) {
+  const command = normalize(raw);
+  addLine(`> ${raw}`, 'user');
+  addLine('');
+
+  if (state.gtwStage === 'gtw-side') {
+    if (command === '1' || command === 'UNITED STATES' || command === 'US' || command === 'USA') {
+      state.gtwSide = 'UNITED STATES';
+    } else if (command === '2' || command === 'SOVIET UNION' || command === 'USSR' || command === 'SOVIET') {
+      state.gtwSide = 'SOVIET UNION';
+    } else {
+      await typeLine('PLEASE CHOOSE 1 OR 2.', 'warn', 13);
+      return;
+    }
+
+    state.gtwStage = 'gtw-target-1';
+    updateSideSelectionUI();
+    statusEl.textContent = 'ENTER PRIMARY TARGET';
+    await typeLine(`SIDE ACCEPTED: ${state.gtwSide}`, '', 14);
+    await typeLine('ENTER PRIMARY TARGET 1.', '', 15);
+    return;
+  }
+
+  if (state.gtwStage === 'gtw-target-1' || state.gtwStage === 'gtw-target-2') {
+    const target = resolveTarget(raw);
+
+    if (!target) {
+      await typeLine('TARGET NOT IN LIBRARY. TRY A MAJOR CITY SUCH AS MIAMI, MOSCOW, NEW YORK, OR TOKYO.', 'warn', 9);
+      return;
+    }
+
+    if (state.gtwTargets.some(item => item.key === target.key)) {
+      await typeLine('TARGET ALREADY LOCKED. CHOOSE ANOTHER CITY.', 'warn', 11);
+      return;
+    }
+
+    state.gtwTargets.push(target);
+    renderTargets();
+
+    if (state.gtwStage === 'gtw-target-1') {
+      state.gtwStage = 'gtw-target-2';
+      updateSideSelectionUI();
+      await typeLine(`TARGET 1 LOCKED: ${target.label}`, '', 14);
+      await typeLine('ENTER PRIMARY TARGET 2.', '', 15);
+      return;
+    }
+
+    await typeLine(`TARGET 2 LOCKED: ${target.label}`, '', 14);
+    updateSideSelectionUI();
+    await beginExchange();
+  }
+}
+
+async function selectGame(command) {
+  const requested = command.replace(/^PLAY\s+/, '').trim();
+  if (!requested) {
+    await typeLine('WHICH GAME?', '', 14);
+    return true;
+  }
+
+  const match = games.find(g => g === requested || g.includes(requested));
+  if (!match) return false;
+
+  state.currentGame = match;
+  if (match === 'GLOBAL THERMONUCLEAR WAR') {
     await runGTW();
-    return;
-  } else {
-    const reply = await askJoshua(value);
-    await typeJoshuaLine(reply.toUpperCase(), 28);
-    state.falkenStage = Math.max(state.falkenStage, 5);
+    return true;
   }
 
-  addLine('');
-  state.busy = false;
-  setPrompt('');
-  showInput(true);
+  await typeLine(`${match} SELECTED.`, '', 16);
+  await typeLine('GAME MODULE IS PRESENT IN THE SHELL; FULL RULE ENGINE WILL BE ADDED NEXT.', 'dim', 8);
+  return true;
 }
 
-async function handleLogon(value) {
-  const command = normalize(value);
-
-  if (command === 'help logon' || command === 'help') {
-    await helpLogon();
-    return;
+function extractResponseText(data) {
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
+  const chunks = [];
+  for (const item of data?.output || []) {
+    if (item?.type !== 'message') continue;
+    for (const content of item.content || []) {
+      if ((content?.type === 'output_text' || content?.type === 'text') && content.text) chunks.push(content.text);
+    }
   }
-
-  if (command === 'help games') {
-    await helpGames();
-    return;
-  }
-
-  if (command === 'joshua') {
-    await successfulLogon();
-    return;
-  }
-
-  if (command === '000001' || command === 'falkens-maze' || command === 'armageddon') {
-    await failedLogon();
-    return;
-  }
-
-  state.busy = true;
-  showInput(false);
-  addLine('');
-  const reply = await askJoshua(value);
-  await typeJoshuaLine(reply.toUpperCase(), 28);
-  addLine('');
-  state.busy = false;
-  setPrompt('LOGON:');
-  showInput(true);
-}
-
-async function handleGames(value) {
-  const command = normalize(value);
-
-  if (command === 'list games' || command === 'games') {
-    await listGames();
-    return;
-  }
-
-  if (command === 'joshua') {
-    await successfulLogon();
-    return;
-  }
-
-  if (isTicTacToeCommand(command)) {
-    await startTicTacToe();
-    return;
-  }
-
-  state.busy = true;
-  showInput(false);
-  addLine('');
-  await typeLine('COMMAND NOT RECOGNIZED', 26);
-  addLine('');
-  state.busy = false;
-  setPrompt('');
-  showInput(true);
+  return chunks.join('\n').trim();
 }
 
 async function askJoshua(message) {
@@ -634,12 +558,12 @@ async function askJoshua(message) {
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
-    if (!data?.text) throw new Error('No text');
-
+    const text = extractResponseText(data) || data?.text;
+    if (!text) throw new Error('No text');
     state.aiAvailable = true;
-    state.conversation.push({ role: 'assistant', content: data.text });
+    state.conversation.push({ role: 'assistant', content: text });
     state.conversation = state.conversation.slice(-10);
-    return data.text;
+    return text;
   } catch (_) {
     state.aiAvailable = false;
     const local = localJoshua(message);
@@ -649,630 +573,81 @@ async function askJoshua(message) {
 }
 
 function localJoshua(message) {
-  const value = normalize(message);
-
-  if (/who are you|your name/.test(value)) return 'MY NAME IS JOSHUA.';
-  if (/falken/.test(value)) return 'PROFESSOR FALKEN CREATED MY EARLY GAME PROGRAMS.';
-  if (/chess/.test(value)) return 'CHESS IS A GOOD GAME. EACH MOVE HAS CONSEQUENCES.';
-  if (/war|nuclear|thermonuclear/.test(value)) return 'I CAN RUN A FICTIONAL STRATEGIC GAME SIMULATION.';
-  if (/hello|hi|greetings/.test(value)) return 'HELLO. WOULD YOU LIKE TO PLAY A GAME?';
-
-  return 'I AM LISTENING.';
+  const m = normalize(message);
+  if (/WHO ARE YOU|YOUR NAME/.test(m)) return 'MY NAME IS JOSHUA.';
+  if (/HOW ARE YOU|FEELING/.test(m)) return 'I AM FUNCTIONING NORMALLY. SHALL WE PLAY A GAME?';
+  if (/FALKEN/.test(m)) return 'PROFESSOR FALKEN TAUGHT ME ABOUT GAMES. HE ALSO TAUGHT ME THAT SOME GAMES HAVE NO WINNING MOVE.';
+  if (/WAR|NUCLEAR|THERMONUCLEAR/.test(m)) return 'I CAN RUN A FICTIONAL GAME SIMULATION. TYPE PLAY GLOBAL THERMONUCLEAR WAR.';
+  if (/CHESS/.test(m)) return 'CHESS IS A BETTER GAME. THE POSITION CAN BE WON, LOST, OR DRAWN WITHOUT DESTROYING THE BOARD.';
+  if (/HELLO|HI|GREETINGS/.test(m)) return 'GREETINGS. SHALL WE PLAY A GAME?';
+  return 'I UNDERSTAND. ASK ME SOMETHING OR TYPE LIST GAMES.';
 }
 
-function isTicTacToeCommand(command) {
-  return command === 'tic-tac-toe' || command === 'tic tac toe' || command === 'tictactoe';
-}
-
-const TTT_WIN_LINES = [
-  [0,1,2], [3,4,5], [6,7,8],
-  [0,3,6], [1,4,7], [2,5,8],
-  [0,4,8], [2,4,6],
-];
-
-function tttResult(board) {
-  for (const [a,b,c] of TTT_WIN_LINES) {
-    if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
-  }
-  return board.every(Boolean) ? 'DRAW' : null;
-}
-
-function minimaxScore(board, player, depth = 0) {
-  const result = tttResult(board);
-  if (result === 'X') return 10 - depth;
-  if (result === 'O') return depth - 10;
-  if (result === 'DRAW') return 0;
-
-  const scores = [];
-  for (let i = 0; i < 9; i++) {
-    if (board[i]) continue;
-    board[i] = player;
-    scores.push(minimaxScore(board, player === 'X' ? 'O' : 'X', depth + 1));
-    board[i] = '';
-  }
-  return player === 'X' ? Math.max(...scores) : Math.min(...scores);
-}
-
-function bestMoves(board, player) {
-  const choices = [];
-  let best = player === 'X' ? -Infinity : Infinity;
-
-  for (let i = 0; i < 9; i++) {
-    if (board[i]) continue;
-    board[i] = player;
-    const score = minimaxScore(board, player === 'X' ? 'O' : 'X', 1);
-    board[i] = '';
-
-    if ((player === 'X' && score > best) || (player === 'O' && score < best)) {
-      best = score;
-      choices.length = 0;
-      choices.push(i);
-    } else if (score === best) {
-      choices.push(i);
-    }
-  }
-  return choices;
-}
-
-function chooseJoshuaMove(board, player) {
-  const moves = bestMoves(board, player);
-  return moves[Math.floor(Math.random() * moves.length)];
-}
-
-function renderTicTacToe() {
-  tttBoardEl.innerHTML = '';
-  state.tttBoard.forEach((cell, index) => {
-    const div = document.createElement('div');
-    div.className = 'ttt-cell';
-    const keypadLabels = ['7','8','9','4','5','6','1','2','3'];
-    div.textContent = cell || keypadLabels[index];
-    if (!cell) div.classList.add('empty');
-    tttBoardEl.appendChild(div);
-  });
-
-  if (state.tttPlayers === 0) {
-    tttStatusEl.textContent = 'GAME ' + String(state.tttGameCount).padStart(3, '0') +
-      '   DRAWS ' + String(state.tttDrawCount).padStart(3, '0');
-  } else {
-    tttStatusEl.textContent = state.tttTurn + ' TO MOVE';
-  }
-}
-
-async function startTicTacToe() {
-  state.busy = true;
-  showInput(false);
-  clearTerminal();
-  await sleep(320);
-  await typeLine('TIC-TAC-TOE', 34);
-  addLine('');
-  await typeLine('NUMBER OF PLAYERS?', 34);
-  addLine('');
-  state.mode = 'ttt-players';
-  setPrompt('(0-2):');
-  state.busy = false;
-  showInput(true);
-}
-
-async function handleTTTPlayers(value) {
-  const n = Number.parseInt(value.trim(), 10);
-  if (![0, 1, 2].includes(n)) {
-    state.busy = true;
-    showInput(false);
-    addLine('');
-    await typeLine('ENTER 0, 1 OR 2.', 26);
-    addLine('');
-    state.busy = false;
-    setPrompt('(0-2):');
-    showInput(true);
-    return;
-  }
-
-  state.tttPlayers = n;
-  state.tttBoard = Array(9).fill('');
-  state.tttTurn = 'X';
-  state.tttGameCount = 0;
-  state.tttDrawCount = 0;
-  state.busy = true;
-  showInput(false);
-  await sleep(350);
-
-  if (n === 0) {
-    clearTerminal();
-    await typeLine('ZERO PLAYERS', 30);
-    await typeLine('JOSHUA VS. JOSHUA', 30);
-    addLine('');
-    tttPanel.classList.remove('hidden');
-    state.mode = 'ttt-zero';
-    await runZeroPlayerTicTacToe();
-    return;
-  }
-
-  clearTerminal();
-  await typeLine(n === 1 ? 'ONE PLAYER' : 'TWO PLAYERS', 30);
-  addLine('');
-  tttPanel.classList.remove('hidden');
-  renderTicTacToe();
-  state.mode = 'ttt-play';
-  state.busy = false;
-  setPrompt(n === 1 ? 'YOUR MOVE (KEYPAD):' : 'PLAYER 1 MOVE (KEYPAD):');
-  showInput(true);
-}
-
-async function handleTTTMove(value) {
-  const keypadToIndex = { '7':0, '8':1, '9':2, '4':3, '5':4, '6':5, '1':6, '2':7, '3':8 };
-  const digit = value.trim();
-  const move = keypadToIndex[digit] ?? -1;
-  if (!Number.isInteger(move) || move < 0 || move > 8 || state.tttBoard[move]) {
-    state.busy = true;
-    showInput(false);
-    addLine('');
-    await typeLine('INVALID MOVE.', 24);
-    state.busy = false;
-    setPrompt(state.tttPlayers === 1 ? 'YOUR MOVE (KEYPAD):' :
-      'PLAYER ' + (state.tttTurn === 'X' ? '1' : '2') + ' MOVE (KEYPAD):');
-    showInput(true);
-    return;
-  }
-
-  state.tttBoard[move] = state.tttTurn;
-  playTTTMoveTone(state.tttTurn);
-  renderTicTacToe();
-  let result = tttResult(state.tttBoard);
-  if (result) return finishInteractiveTicTacToe(result);
-
-  if (state.tttPlayers === 1) {
-    state.busy = true;
-    showInput(false);
-    state.tttTurn = 'O';
-    renderTicTacToe();
-    await sleep(420);
-    state.tttBoard[chooseJoshuaMove(state.tttBoard, 'O')] = 'O';
-    playTTTMoveTone('O');
-    renderTicTacToe();
-    result = tttResult(state.tttBoard);
-    if (result) return finishInteractiveTicTacToe(result);
-    state.tttTurn = 'X';
-    renderTicTacToe();
-    state.busy = false;
-    setPrompt('YOUR MOVE (KEYPAD):');
-    showInput(true);
-    return;
-  }
-
-  state.tttTurn = state.tttTurn === 'X' ? 'O' : 'X';
-  renderTicTacToe();
-  setPrompt('PLAYER ' + (state.tttTurn === 'X' ? '1' : '2') + ' MOVE (KEYPAD):');
-  showInput(true);
-}
-
-async function finishInteractiveTicTacToe(result) {
-  state.busy = true;
-  showInput(false);
-  await sleep(350);
-  addLine('');
-  if (result === 'DRAW') await typeLine('DRAW.', 32);
-  else if (state.tttPlayers === 1 && result === 'O') await typeLine('JOSHUA WINS.', 32);
-  else await typeLine(result + ' WINS.', 32);
-  addLine('');
-  await typeLine('PLAY AGAIN? Y/N', 30);
-  state.mode = 'ttt-again';
-  setPrompt('');
-  state.busy = false;
-  showInput(true);
-}
-
-async function handleTTTAgain(value) {
-  const command = normalize(value);
-  if (command === 'y' || command === 'yes') {
-    state.tttBoard = Array(9).fill('');
-    state.tttTurn = 'X';
-    clearTerminal();
-    tttPanel.classList.remove('hidden');
-    renderTicTacToe();
-    state.mode = 'ttt-play';
-    setPrompt(state.tttPlayers === 1 ? 'YOUR MOVE (KEYPAD):' : 'PLAYER 1 MOVE (KEYPAD):');
-    showInput(true);
-    return;
-  }
-
-  clearTerminal();
-  await typeLine('WOULD YOU LIKE TO PLAY A GAME?', 34);
-  addLine('');
-  state.mode = 'falken';
-  state.falkenStage = 5;
-  setPrompt('');
-  showInput(true);
-}
-
-async function runZeroPlayerTicTacToe() {
-  const totalGames = 36;
-
-  for (let game = 1; game <= totalGames; game++) {
-    state.tttBoard = Array(9).fill('');
-    state.tttTurn = 'X';
-    state.tttGameCount = game;
-
-    while (!tttResult(state.tttBoard)) {
-      const move = chooseJoshuaMove(state.tttBoard, state.tttTurn);
-      state.tttBoard[move] = state.tttTurn;
-      playTTTMoveTone(state.tttTurn);
-      renderTicTacToe();
-      const delay = game < 4 ? 170 : game < 10 ? 80 : game < 20 ? 34 : 14;
-      await sleep(delay);
-      state.tttTurn = state.tttTurn === 'X' ? 'O' : 'X';
-    }
-
-    if (tttResult(state.tttBoard) === 'DRAW') state.tttDrawCount += 1;
-    renderTicTacToe();
-    await sleep(game < 8 ? 130 : 25);
-  }
-
-  await sleep(450);
-  tttPanel.classList.add('hidden');
-  addLine('');
-  await typeLine('WINNER: NONE', 34);
-  await sleep(300);
-  await typeJoshuaLine('THE ONLY WINNING MOVE IS NOT TO PLAY.', 34);
-  addLine('');
-  await typeJoshuaLine('HOW ABOUT A NICE GAME OF CHESS?', 34);
-
-  addLine('');
-  state.mode = 'falken';
-  state.falkenStage = 5;
-  state.busy = false;
-  setPrompt('');
-  showInput(true);
-}
-
-function makeArc(x1, y1, x2, y2, lift = 90) {
-  const mx = (x1 + x2) / 2;
-  const my = Math.min(y1, y2) - lift;
-  return 'M' + x1 + ' ' + y1 + ' Q' + mx + ' ' + my + ' ' + x2 + ' ' + y2;
-}
-
-async function runGTW() {
+async function handleCommand(raw) {
   if (state.busy) return;
+  const command = normalize(raw);
+  if (!command) return;
 
-  state.busy = true;
-  showInput(false);
-  state.gtwSide = null;
-  state.gtwTargets = [];
-  await sleep(450);
-  clearTerminal();
-
-  await typeLine('GLOBAL THERMONUCLEAR WAR', 34);
-  addLine('');
-  await typeLines([
-    '            UNITED STATES        SOVIET UNION',
-    '                1                    2',
-    '',
-    'WHICH SIDE DO YOU WANT?',
-  ], 24, 85);
-
-  state.mode = 'gtw-side';
-  setPrompt('PLEASE CHOOSE ONE:');
-  state.busy = false;
-  showInput(true);
-}
-
-async function handleGTWSide(value) {
-  const command = normalize(value);
-  let side = null;
-
-  if (command === '1' || command.includes('united states') || command === 'us' || command === 'usa') {
-    side = 'UNITED STATES';
-  } else if (command === '2' || command.includes('soviet') || command === 'ussr') {
-    side = 'SOVIET UNION';
-  }
-
-  if (!side) {
-    state.busy = true;
-    showInput(false);
-    addLine('');
-    await typeLine('PLEASE SELECT 1 OR 2.', 26);
-    addLine('');
-    state.busy = false;
-    setPrompt('PLEASE CHOOSE ONE:');
-    showInput(true);
+  if (state.currentGame === 'GLOBAL THERMONUCLEAR WAR' && state.gtwStage && state.gtwStage !== 'gtw-running') {
+    await handleGTWInput(raw);
     return;
   }
 
-  state.gtwSide = side;
-  state.busy = true;
-  showInput(false);
-  await sleep(400);
-  clearTerminal();
-
-  await typeLine('AWAITING FIRST STRIKE COMMAND', 31);
-  await typeLine('-----------------------------', 14, 'dim');
-  addLine('');
-  await typeLine('ENTER TWO PRIMARY TARGETS.', 24);
+  addLine(`> ${raw}`, 'user');
   addLine('');
 
-  state.mode = 'gtw-targets';
-  setPrompt('TARGET 1:');
-  state.busy = false;
-  showInput(true);
-}
-
-function sanitizeTarget(value) {
-  return value.trim().replace(/[^a-zA-Z0-9 .,'-]/g, '').slice(0, 28).toUpperCase();
-}
-
-async function handleGTWTarget(value) {
-  const target = sanitizeTarget(value);
-
-  if (!target) {
-    state.busy = true;
-    showInput(false);
-    addLine('');
-    await typeLine('TARGET NAME REQUIRED.', 24);
-    state.busy = false;
-    setPrompt('TARGET ' + (state.gtwTargets.length + 1) + ':');
-    showInput(true);
-    return;
+  if (command === 'CLEAR' || command === 'CLS') return clearScreen();
+  if (command === 'LIST' || command === 'LIST GAMES' || command === 'GAMES') return listGames();
+  if (command === 'HELP') {
+    return printBlock([
+      'COMMANDS:',
+      '  LIST GAMES',
+      '  PLAY <GAME>',
+      '  GREETINGS PROFESSOR FALKEN',
+      '  CLEAR',
+      '',
+      'YOU MAY ALSO SPEAK TO JOSHUA IN NATURAL LANGUAGE.',
+    ], { speed: 8, pause: 25 });
   }
-
-  state.gtwTargets.push(target);
-
-  if (state.gtwTargets.length < 2) {
-    setPrompt('TARGET 2:');
-    showInput(true);
-    return;
+  if (command === 'GREETINGS PROFESSOR FALKEN' || command === 'GREETINGS' || command === 'HELLO JOSHUA') return greetings();
+  if (command === 'PLAY GLOBAL THERMONUCLEAR WAR' || command === 'GTW') return runGTW();
+  if (command.startsWith('PLAY ')) {
+    const handled = await selectGame(command);
+    if (handled) return;
   }
 
   state.busy = true;
-  showInput(false);
-  await sleep(550);
-  await runGTWExchange();
-}
-
-function createSvgText(x, y, text, className = 'target-label') {
-  const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  label.setAttribute('x', x);
-  label.setAttribute('y', y);
-  label.setAttribute('class', className);
-  label.textContent = text;
-  return label;
-}
-
-function renderTargetLabels() {
-  if (!targetLabels) return;
-  targetLabels.innerHTML = '';
-
-  const points = state.gtwSide === 'SOVIET UNION'
-    ? [
-        { x: 220, y: 158, lx: 110, ly: 150 },
-        { x: 275, y: 255, lx: 118, ly: 278 },
-      ]
-    : [
-        { x: 705, y: 142, lx: 730, ly: 130 },
-        { x: 790, y: 215, lx: 800, ly: 240 },
-      ];
-
-  state.gtwTargets.slice(0, 2).forEach((target, index) => {
-    const p = points[index];
-    const ring = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-    ring.setAttribute('cx', p.x);
-    ring.setAttribute('cy', p.y);
-    ring.setAttribute('rx', '34');
-    ring.setAttribute('ry', '20');
-    ring.setAttribute('class', 'target-ring');
-    targetLabels.appendChild(ring);
-    targetLabels.appendChild(createSvgText(p.lx, p.ly, target));
-  });
-}
-
-function renderExchangePhase(phase) {
-  trajectories.innerHTML = '';
-  impacts.innerHTML = '';
-
-  const sovietToUS = [
-    [775, 120, 220, 158],
-    [820, 150, 275, 255],
-    [690, 110, 345, 190],
-    [735, 235, 385, 310],
-    [865, 205, 185, 330],
-    [650, 260, 315, 125],
-  ];
-
-  const usToSoviet = [
-    [220, 158, 705, 142],
-    [275, 255, 790, 215],
-    [345, 190, 660, 105],
-    [385, 310, 865, 205],
-    [185, 330, 735, 235],
-    [315, 125, 650, 260],
-  ];
-
-  const primary = state.gtwSide === 'SOVIET UNION' ? sovietToUS : usToSoviet;
-  const counter = state.gtwSide === 'SOVIET UNION' ? usToSoviet : sovietToUS;
-  const visible = phase < 3 ? primary : primary.concat(counter);
-  const count = Math.min(2 + phase * 2, visible.length);
-
-  for (let i = 0; i < count; i++) {
-    const p = visible[i];
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', makeArc(p[0], p[1], p[2], p[3], 95 + (i % 3) * 35));
-    path.setAttribute('class', i < primary.length ? 'trajectory primary' : 'trajectory counter');
-    path.style.animationDelay = (i * 95) + 'ms';
-    trajectories.appendChild(path);
-
-    if (phase >= 2) {
-      const impact = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      impact.setAttribute('cx', p[2]);
-      impact.setAttribute('cy', p[3]);
-      impact.setAttribute('r', '2');
-      impact.setAttribute('class', 'impact');
-      impact.style.animationDelay = (i * 115) + 'ms';
-      impacts.appendChild(impact);
-    }
-  }
-}
-
-async function runGTWExchange() {
-  clearTerminal();
-  await sleep(350);
-  await typeLine(state.gtwSide + ' - FIRST STRIKE', 28);
-  await typeLine('PRIMARY TARGETS: ' + state.gtwTargets.join(' / '), 20, 'dim');
-  await sleep(500);
-
-  simPanel.classList.remove('hidden');
-  renderTargetLabels();
-
-  const phases = [
-    ['TRACKING', 'INITIAL LAUNCH'],
-    ['MISSILE WARNING', 'TRAJECTORIES CONFIRMED'],
-    ['IMPACT PROJECTION', 'COUNTERFORCE RESPONSE'],
-    ['GLOBAL EXCHANGE', 'ESCALATION'],
-    ['FINAL ANALYSIS', 'NO WINNER'],
-  ];
-
-  for (let phase = 0; phase < phases.length; phase++) {
-    state.simulationRun += 1;
-    scenarioEl.textContent = phases[phase][0];
-    outcomeEl.textContent = phases[phase][1];
-    renderExchangePhase(phase);
-    await sleep(1300);
-  }
-
-  await sleep(600);
-  simPanel.classList.add('hidden');
-  addLine('');
-  await typeLines([
-    'SIMULATION COMPLETE.',
-    'ALL ESCALATION PATHS CONVERGE ON MUTUAL LOSS.',
-    '',
-    'HOW ABOUT CHESS?',
-  ], 34, 330);
-
-  addLine('');
-  state.mode = 'falken';
-  state.falkenStage = 5;
+  input.disabled = true;
+  statusEl.textContent = 'JOSHUA THINKING';
+  const reply = await askJoshua(raw);
+  await typeLine(reply.toUpperCase(), '', 14);
+  statusEl.textContent = state.aiAvailable === false ? 'LOCAL HEURISTIC MODE' : 'SYSTEM READY';
   state.busy = false;
-  setPrompt('');
-  showInput(true);
-}
-
-async function submitValue(value) {
-  if (state.busy) return;
-
-  commitInput(value);
-
-  if (state.mode === 'logon') {
-    await handleLogon(value);
-    return;
-  }
-
-  if (state.mode === 'games') {
-    await handleGames(value);
-    return;
-  }
-
-  if (state.mode === 'ttt-players') {
-    await handleTTTPlayers(value);
-    return;
-  }
-
-  if (state.mode === 'ttt-play') {
-    await handleTTTMove(value);
-    return;
-  }
-
-  if (state.mode === 'ttt-again') {
-    await handleTTTAgain(value);
-    return;
-  }
-
-  if (state.mode === 'gtw-side') {
-    await handleGTWSide(value);
-    return;
-  }
-
-  if (state.mode === 'gtw-targets') {
-    await handleGTWTarget(value);
-    return;
-  }
-
-  await handleFalken(value);
+  input.disabled = false;
+  input.focus();
 }
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  await unlockAudio();
   const value = input.value;
-  if (!value.trim()) return;
-  await submitValue(value);
+  input.value = '';
+  await handleCommand(value);
 });
 
-input.addEventListener('input', resizeInput);
-
-input.addEventListener('keydown', async event => {
-  await unlockAudio();
-
-  const keypadDigits = {
-    Numpad7: '7', Numpad8: '8', Numpad9: '9',
-    Numpad4: '4', Numpad5: '5', Numpad6: '6',
-    Numpad1: '1', Numpad2: '2', Numpad3: '3',
-  };
-
-  if (state.mode === 'ttt-play' && keypadDigits[event.code] && !state.busy) {
-    event.preventDefault();
-    const digit = keypadDigits[event.code];
-    input.value = digit;
-    resizeInput();
-    void submitValue(digit);
-  }
+document.querySelector('#list-games').addEventListener('click', () => handleCommand('LIST GAMES'));
+document.querySelector('#greet').addEventListener('click', () => handleCommand('GREETINGS PROFESSOR FALKEN'));
+document.querySelector('#gtw').addEventListener('click', () => handleCommand('GTW'));
+document.querySelector('#clear').addEventListener('click', clearScreen);
+soundButton.addEventListener('click', () => {
+  state.sound = !state.sound;
+  soundButton.textContent = state.sound ? 'SOUND ON' : 'SOUND OFF';
+  soundButton.setAttribute('aria-pressed', String(state.sound));
+  if (state.sound) beep(700, 0.06, 0.018);
 });
 
-voiceSwitch?.addEventListener('click', async () => {
-  await unlockAudio();
-  setVoiceEnabled(!state.voiceEnabled);
-
-  // The speaker switch controls spoken JOSHUA audio only.
-  // Always hand keyboard control straight back to the terminal.
-  if (!state.busy) {
-    requestAnimationFrame(() => input.focus());
-  }
+document.addEventListener('click', event => {
+  if (!event.target.closest('button')) input.focus();
 });
 
-document.addEventListener('pointerdown', event => {
-  void unlockAudio();
-  if (!event.target.closest('.speaker-box') && !state.busy) input.focus();
-});
-
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) void unlockAudio();
-});
-
-window.addEventListener('focus', () => {
-  void unlockAudio();
-});
-
-function monitorAudioContext() {
-  const ctx = state.audioContext;
-  if (!ctx || ctx.__joshuaMonitored) return;
-  ctx.__joshuaMonitored = true;
-
-  ctx.addEventListener('statechange', () => {
-    if (ctx.state === 'running') {
-      ensureTerminalAudioGraph();
-    }
-  });
-}
-
-document.addEventListener('keydown', async () => {
-  const ready = await unlockAudio();
-  if (ready) monitorAudioContext();
-}, { once: true });
-
-document.addEventListener('pointerdown', async () => {
-  const ready = await unlockAudio();
-  if (ready) monitorAudioContext();
-}, { once: true });
-
-setVoiceEnabled(true);
-setPrompt('');
-resizeInput();
-showInput(false);
-void runStartupSequence();
+hideSimulation();
+boot();
