@@ -210,41 +210,57 @@ function playTTTMoveTone(mark, intensity = 1) {
 
     const now = ctx.currentTime;
     const master = ctx.createGain();
-    master.gain.setValueAtTime(Math.min(0.20, 0.11 + intensity * 0.025), now);
+    master.gain.setValueAtTime(Math.min(0.24, 0.12 + intensity * 0.035), now);
     master.connect(ctx.destination);
 
-    const makeBurst = (startOffset, freq1, freq2, duration, type, filterFreq) => {
+    const makeTone = (startOffset, startFreq, endFreq, duration, type, harmonic = 0) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
+      const lowpass = ctx.createBiquadFilter();
 
       osc.type = type;
-      osc.frequency.setValueAtTime(freq1, now + startOffset);
-      osc.frequency.exponentialRampToValueAtTime(freq2, now + startOffset + duration);
+      osc.frequency.setValueAtTime(startFreq, now + startOffset);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, now + startOffset + duration);
 
-      filter.type = 'bandpass';
-      filter.frequency.value = filterFreq;
-      filter.Q.value = 1.7;
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 720;
+      lowpass.Q.value = 0.8;
 
       gain.gain.setValueAtTime(0.0001, now + startOffset);
-      gain.gain.linearRampToValueAtTime(1, now + startOffset + 0.004);
+      gain.gain.linearRampToValueAtTime(1, now + startOffset + 0.008);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
 
-      osc.connect(filter);
-      filter.connect(gain);
+      osc.connect(lowpass);
+      lowpass.connect(gain);
       gain.connect(master);
+
       osc.start(now + startOffset);
-      osc.stop(now + startOffset + duration + 0.01);
+      osc.stop(now + startOffset + duration + 0.015);
+
+      if (harmonic > 0) {
+        const h = ctx.createOscillator();
+        const hg = ctx.createGain();
+        h.type = 'sine';
+        h.frequency.setValueAtTime(startFreq * harmonic, now + startOffset);
+        h.frequency.exponentialRampToValueAtTime(endFreq * harmonic, now + startOffset + duration);
+        hg.gain.setValueAtTime(0.0001, now + startOffset);
+        hg.gain.linearRampToValueAtTime(0.18, now + startOffset + 0.010);
+        hg.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
+        h.connect(hg);
+        hg.connect(master);
+        h.start(now + startOffset);
+        h.stop(now + startOffset + duration + 0.015);
+      }
     };
 
     if (mark === 'X') {
-      // Bright, clipped two-part electronic "beep-beep".
-      makeBurst(0.000, 980, 860, 0.055, 'square', 1050);
-      makeBurst(0.048, 820, 720, 0.060, 'square', 900);
+      // Ominous X: slightly higher than O, with a short descending answer.
+      makeTone(0.000, 315, 276, 0.115, 'triangle', 2);
+      makeTone(0.082, 286, 252, 0.105, 'sine', 0);
     } else {
-      // Lower rounded "boop" with a short answering tail.
-      makeBurst(0.000, 590, 455, 0.085, 'triangle', 650);
-      makeBurst(0.060, 430, 360, 0.075, 'sine', 470);
+      // Ominous O: lower and rounder, clearly separated from X.
+      makeTone(0.000, 246, 214, 0.145, 'sine', 2);
+      makeTone(0.095, 222, 196, 0.125, 'triangle', 0);
     }
   };
 
@@ -314,7 +330,8 @@ function setPrompt(text) {
 }
 
 async function typePrompt(text = '', speed = 34) {
-  await unlockAudio();
+  // Rendering must never wait for browser audio permission.
+  void unlockAudio();
 
   const inputWrap = form.querySelector('.input-wrap');
   form.classList.remove('hidden');
@@ -1342,7 +1359,7 @@ async function submitValue(value) {
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  await unlockAudio();
+  void unlockAudio();
   const value = input.value;
   if (!value.trim()) return;
   await submitValue(value);
@@ -1350,7 +1367,7 @@ form.addEventListener('submit', async event => {
 
 input.addEventListener('input', resizeInput);
 
-input.addEventListener('keydown', async event => {
+input.addEventListener('keydown', event => {
   if (
     event.key === 'Backspace' ||
     event.key === 'Delete' ||
@@ -1362,7 +1379,7 @@ input.addEventListener('keydown', async event => {
     return;
   }
 
-  await unlockAudio();
+  void unlockAudio();
 
   const keypadDigits = {
     Numpad7: '7', Numpad8: '8', Numpad9: '9',
@@ -1379,17 +1396,22 @@ input.addEventListener('keydown', async event => {
   }
 });
 
+voiceSwitch?.addEventListener('pointerdown', event => {
+  // Do not let the speaker button steal keyboard focus from the terminal.
+  event.preventDefault();
+});
+
 voiceSwitch?.addEventListener('click', () => {
   void unlockAudio();
   setVoiceEnabled(!state.voiceEnabled);
 
-  // Voice toggling must never capture or disable terminal input.
-  if (!state.busy) {
-    input.disabled = false;
-    form.classList.remove('hidden');
-    resizeInput();
-    requestAnimationFrame(() => input.focus());
-  }
+  // The switch changes only spoken-audio policy. It never changes terminal state.
+  requestAnimationFrame(() => {
+    if (!form.classList.contains('hidden') && !input.disabled) input.focus();
+  });
+  setTimeout(() => {
+    if (!form.classList.contains('hidden') && !input.disabled) input.focus();
+  }, 80);
 });
 
 document.addEventListener('pointerdown', event => {
