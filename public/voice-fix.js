@@ -1,23 +1,12 @@
 (() => {
-  const decodedVoiceCache = new Map();
+  const voiceCache = new Map();
+  let currentAudio = null;
+  let verificationInFlight = false;
 
-  function makeSaturationCurve(amount = 10) {
-    const samples = 1024;
-    const curve = new Float32Array(samples);
-    const k = Math.max(1, amount);
-
-    for (let i = 0; i < samples; i++) {
-      const x = (i * 2) / (samples - 1) - 1;
-      curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
-    }
-
-    return curve;
-  }
-
-  async function getVoiceBuffer(text) {
+  async function requestVoiceBlob(text) {
     const key = String(text || '').trim().toUpperCase();
     if (!key) return null;
-    if (decodedVoiceCache.has(key)) return decodedVoiceCache.get(key);
+    if (voiceCache.has(key)) return voiceCache.get(key);
 
     const response = await fetch('/api/voice', {
       method: 'POST',
@@ -25,103 +14,105 @@
       body: JSON.stringify({ text }),
     });
 
-    if (!response.ok) throw new Error('Voice generation failed');
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      const detail = [
+        data?.status,
+        data?.code,
+        data?.type,
+        data?.detail,
+        data?.error,
+      ].filter(Boolean).join(' | ');
+      throw new Error(detail || ('VOICE HTTP ' + response.status));
+    }
 
-    const bytes = await response.arrayBuffer();
-    await unlockAudio();
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('EMPTY VOICE RESPONSE');
 
-    const ctx = state.audioContext;
-    if (!ctx || ctx.state !== 'running') throw new Error('Audio context unavailable');
-
-    const decoded = await ctx.decodeAudioData(bytes.slice(0));
-    decodedVoiceCache.set(key, decoded);
-    return decoded;
+    voiceCache.set(key, blob);
+    return blob;
   }
 
-  stopJoshuaVoice = function stopJoshuaVoiceProcessed() {
+  function stopCurrentVoice() {
+    if (!currentAudio) return;
     try {
-      if (state.currentVoiceSource) {
-        state.currentVoiceSource.stop();
-        state.currentVoiceSource.disconnect();
-      }
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      if (currentAudio.__objectUrl) URL.revokeObjectURL(currentAudio.__objectUrl);
     } catch (_) {}
-
-    state.currentVoiceSource = null;
-
-    try {
-      if (state.currentVoiceAudio) {
-        state.currentVoiceAudio.pause();
-        state.currentVoiceAudio.currentTime = 0;
-      }
-    } catch (_) {}
-
+    currentAudio = null;
     state.currentVoiceAudio = null;
+  }
+
+  async function playVoiceBlob(blob) {
+    stopCurrentVoice();
+
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.preload = 'auto';
+    audio.volume = 0.90;
+    audio.__objectUrl = url;
+
+    currentAudio = audio;
+    state.currentVoiceAudio = audio;
+
+    audio.addEventListener('ended', () => {
+      if (currentAudio === audio) currentAudio = null;
+      try { URL.revokeObjectURL(url); } catch (_) {}
+    }, { once: true });
+
+    await audio.play();
+  }
+
+  stopJoshuaVoice = function stopJoshuaVoiceReliable() {
+    stopCurrentVoice();
   };
 
-  speakJoshua = async function speakJoshuaProcessed(text) {
+  speakJoshua = async function speakJoshuaReliable(text) {
     if (!state.voiceEnabled || !String(text || '').trim()) return;
 
     try {
-      await unlockAudio();
-      const buffer = await getVoiceBuffer(text);
-      if (!state.voiceEnabled || !buffer) return;
-
-      stopJoshuaVoice();
-
-      const ctx = state.audioContext;
-      if (!ctx || ctx.state !== 'running') return;
-
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-
-      const highpass = ctx.createBiquadFilter();
-      highpass.type = 'highpass';
-      highpass.frequency.value = 150;
-      highpass.Q.value = 0.7;
-
-      const presence = ctx.createBiquadFilter();
-      presence.type = 'peaking';
-      presence.frequency.value = 1250;
-      presence.Q.value = 0.9;
-      presence.gain.value = 3.5;
-
-      const lowpass = ctx.createBiquadFilter();
-      lowpass.type = 'lowpass';
-      lowpass.frequency.value = 3350;
-      lowpass.Q.value = 0.8;
-
-      const saturator = ctx.createWaveShaper();
-      saturator.curve = makeSaturationCurve(5);
-      saturator.oversample = '2x';
-
-      const compressor = ctx.createDynamicsCompressor();
-      compressor.threshold.value = -28;
-      compressor.knee.value = 8;
-      compressor.ratio.value = 4.5;
-      compressor.attack.value = 0.004;
-      compressor.release.value = 0.16;
-
-      const gain = ctx.createGain();
-      gain.gain.value = 0.88;
-
-      source.connect(highpass);
-      highpass.connect(presence);
-      presence.connect(lowpass);
-      lowpass.connect(saturator);
-      saturator.connect(compressor);
-      compressor.connect(gain);
-      gain.connect(ctx.destination);
-
-      state.currentVoiceSource = source;
-      source.onended = () => {
-        if (state.currentVoiceSource === source) {
-          state.currentVoiceSource = null;
-        }
-      };
-
-      source.start();
+      const blob = await requestVoiceBlob(text);
+      if (!state.voiceEnabled || !blob) return;
+      await playVoiceBlob(blob);
+      window.__joshuaVoiceStatus = { ok: true, error: null };
     } catch (error) {
-      console.warn('JOSHUA VOICE:', error?.message || error);
+      const message = error?.message || 'VOICE FAILED';
+      window.__joshuaVoiceStatus = { ok: false, error: message };
+      console.error('JOSHUA VOICE:', message);
     }
   };
+
+  async function verifyVoiceOn() {
+    if (verificationInFlight || !state.voiceEnabled) return;
+    verificationInFlight = true;
+
+    if (voiceStateEl) voiceStateEl.textContent = 'CHECKING';
+
+    try {
+      const blob = await requestVoiceBlob('READY');
+      if (!state.voiceEnabled) return;
+
+      await playVoiceBlob(blob);
+      if (voiceStateEl) voiceStateEl.textContent = 'VOICE ON';
+      window.__joshuaVoiceStatus = { ok: true, error: null };
+    } catch (error) {
+      const message = error?.message || 'VOICE FAILED';
+      console.error('JOSHUA VOICE VERIFY:', message);
+      window.__joshuaVoiceStatus = { ok: false, error: message };
+
+      setVoiceEnabled(false);
+      if (voiceStateEl) voiceStateEl.textContent = 'VOICE ERROR';
+    } finally {
+      verificationInFlight = false;
+    }
+  }
+
+  voiceSwitch?.addEventListener('click', () => {
+    requestAnimationFrame(() => {
+      if (state.voiceEnabled) void verifyVoiceOn();
+    });
+  });
+
+  setVoiceEnabled(false);
 })();
