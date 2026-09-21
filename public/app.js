@@ -428,7 +428,16 @@ function resizeInput() {
 
 function showInput(show = true) {
   if (isMobileTerminal()) {
-    // Never hide or disable the focused terminal field on mobile.
+    // Preserve the clean anonymous boot screen before LOGON exists.
+    if (!show && state.mode === 'boot') {
+      form.classList.add('hidden');
+      input.disabled = false;
+      form.classList.remove('mobile-busy');
+      input.setAttribute('aria-busy', 'true');
+      return;
+    }
+
+    // Once the terminal is active, never hide or disable the focused field.
     // Keeping the same input alive keeps the software keyboard open.
     form.classList.remove('hidden');
     input.disabled = false;
