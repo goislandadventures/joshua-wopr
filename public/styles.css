@@ -797,3 +797,14 @@ button, input { font: inherit; }
     font-size: 9px;
   }
 }
+
+
+/* On mobile, reserve the speaker's actual height inside the scrollable CRT.
+   Auto-scroll therefore moves new terminal lines upward before they pass
+   underneath the speaker enclosure. */
+@media (pointer: coarse), (max-width: 820px) {
+  .screen {
+    padding-bottom: calc(var(--mobile-speaker-clearance, 180px) + 18px);
+    scroll-padding-bottom: calc(var(--mobile-speaker-clearance, 180px) + 18px);
+  }
+}
