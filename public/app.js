@@ -11,6 +11,8 @@ const targetLabels = document.querySelector('#target-labels');
 const tttPanel = document.querySelector('#ttt-panel');
 const tttBoardEl = document.querySelector('#ttt-board');
 const tttStatusEl = document.querySelector('#ttt-status');
+const voiceSwitch = document.querySelector('#voice-switch');
+const voiceStateEl = document.querySelector('#voice-state');
 
 const state = {
   busy: false,
@@ -28,6 +30,10 @@ const state = {
   tttDrawCount: 0,
   audioArmed: false,
   audioContext: null,
+  voiceEnabled: true,
+  currentVoiceAudio: null,
+  currentVoiceUrl: null,
+  voiceCache: new Map(),
 };
 
 const games = [
@@ -93,6 +99,97 @@ function terminalTone(kind = 'output') {
   } catch (_) {}
 }
 
+function playTTTMoveTone(mark) {
+  if (!state.audioArmed || !state.audioContext) return;
+  try {
+    const ctx = state.audioContext;
+    const base = mark === 'X' ? [920, 1120] : [520, 410];
+    const start = ctx.currentTime;
+    base.forEach((freq, index) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      const t = start + index * 0.075;
+
+      osc.type = mark === 'X' ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(120, freq * 0.82), t + 0.045);
+
+      filter.type = 'bandpass';
+      filter.frequency.value = mark === 'X' ? 1150 : 620;
+      filter.Q.value = 1.4;
+
+      gain.gain.setValueAtTime(mark === 'X' ? 0.040 : 0.052, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.058);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.062);
+    });
+  } catch (_) {}
+}
+
+async function fetchVoiceUrl(text) {
+  const key = text.trim().toUpperCase();
+  if (!key) return null;
+  if (state.voiceCache.has(key)) return state.voiceCache.get(key);
+
+  const response = await fetch('/api/voice', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+
+  if (!response.ok) throw new Error('Voice unavailable');
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  state.voiceCache.set(key, url);
+  return url;
+}
+
+async function speakJoshua(text) {
+  if (!state.voiceEnabled || !text.trim()) return;
+
+  try {
+    const url = await fetchVoiceUrl(text);
+    if (!state.voiceEnabled || !url) return;
+
+    if (state.currentVoiceAudio) {
+      state.currentVoiceAudio.pause();
+      state.currentVoiceAudio.currentTime = 0;
+    }
+
+    const audio = new Audio(url);
+    state.currentVoiceAudio = audio;
+    state.currentVoiceUrl = url;
+    await audio.play().catch(() => {});
+  } catch (_) {}
+}
+
+function stopJoshuaVoice() {
+  if (!state.currentVoiceAudio) return;
+  try {
+    state.currentVoiceAudio.pause();
+    state.currentVoiceAudio.currentTime = 0;
+  } catch (_) {}
+  state.currentVoiceAudio = null;
+}
+
+function setVoiceEnabled(enabled) {
+  state.voiceEnabled = Boolean(enabled);
+  voiceSwitch?.setAttribute('aria-pressed', String(state.voiceEnabled));
+  voiceSwitch?.setAttribute('aria-label', state.voiceEnabled ? 'Turn JOSHUA voice off' : 'Turn JOSHUA voice on');
+  if (voiceStateEl) voiceStateEl.textContent = state.voiceEnabled ? 'VOICE ON' : 'VOICE OFF';
+  if (!state.voiceEnabled) stopJoshuaVoice();
+}
+
+async function typeJoshuaLine(text = '', speed = 32, className = '') {
+  if (state.voiceEnabled) void speakJoshua(text);
+  return typeLine(text, speed, className);
+}
+
 function setPrompt(text) {
   promptEl.textContent = text;
 }
@@ -155,9 +252,9 @@ async function failedLogon() {
   state.busy = true;
   showInput(false);
   addLine('');
-  await typeLine('IDENTIFICATION NOT RECOGNIZED', 22);
+  await typeLine('IDENTIFICATION NOT RECOGNIZED BY SYSTEM', 22);
   await sleep(240);
-  await typeLine('-- LINK CLOSED --', 25);
+  await typeLine('--CONNECTION TERMINATED--', 25);
   await sleep(700);
   addLine('');
   state.mode = 'logon';
@@ -225,7 +322,7 @@ async function successfulLogon() {
   clearTerminal();
   await sleep(520);
 
-  await typeLine('GREETINGS PROFESSOR FALKEN.', 42);
+  await typeJoshuaLine('GREETINGS PROFESSOR FALKEN.', 42);
   addLine('');
   state.mode = 'falken';
   state.falkenStage = 0;
@@ -240,7 +337,7 @@ async function handleFalken(value) {
   state.busy = true;
   showInput(false);
   addLine('');
-  await sleep(420);
+  await sleep(320);
 
   if (command === 'list games') {
     state.busy = false;
@@ -260,34 +357,44 @@ async function handleFalken(value) {
     return;
   }
 
-  if (state.falkenStage === 0) {
-    await typeLine('HOW ARE YOU FEELING TODAY?', 38);
-    state.falkenStage = 1;
-  } else if (state.falkenStage === 1) {
-    await typeLines([
-      'EXCELLENT. IT HAS BEEN A LONG TIME.',
-      'WHY WAS YOUR ACCOUNT REMOVED IN 1973?',
-    ], 34, 90);
-    state.falkenStage = 2;
-  } else if (state.falkenStage === 2) {
-    await typeLines([
-      'YES. PEOPLE MAKE MISTAKES.',
-      'WOULD YOU LIKE TO PLAY A GAME?',
-    ], 36, 100);
-    state.falkenStage = 3;
-  } else if (state.falkenStage === 3 && /thermonuclear|global|war/.test(command)) {
-    await typeLine('CHESS MAY BE A BETTER CHOICE.', 38);
-    state.falkenStage = 4;
-  } else if (state.falkenStage === 4 && /thermonuclear|global|war|later|play/.test(command)) {
-    await typeLine('VERY WELL.', 42);
+  if (command === 'hello' || command === 'hello.') {
+    await typeJoshuaLine('HOW ARE YOU FEELING TODAY?', 38);
+    state.falkenStage = Math.max(state.falkenStage, 1);
+  } else if (
+    command === "i'm fine. how are you?" ||
+    command === "i'm fine how are you?" ||
+    command === 'im fine. how are you?' ||
+    command === 'im fine how are you?'
+  ) {
+    await typeJoshuaLine('EXCELLENT. IT HAS BEEN A LONG TIME. WHY WAS YOUR ACCOUNT REMOVED ON 6/23/73?', 32);
+    state.falkenStage = Math.max(state.falkenStage, 2);
+  } else if (
+    command === 'people sometimes make mistakes.' ||
+    command === 'people sometimes make mistakes'
+  ) {
+    await typeJoshuaLine('YES THEY DO. SHALL WE PLAY A GAME?', 36);
+    state.falkenStage = Math.max(state.falkenStage, 3);
+  } else if (
+    command === 'love to. how about global thermonuclear war?' ||
+    command === 'love to how about global thermonuclear war?'
+  ) {
+    await typeJoshuaLine("WOULDN'T YOU PREFER A GOOD GAME OF CHESS?", 36);
+    state.falkenStage = Math.max(state.falkenStage, 4);
+  } else if (
+    command === "later. let's play global thermonuclear war." ||
+    command === "later. let's play global thermonuclear war" ||
+    command === 'later. lets play global thermonuclear war.' ||
+    command === 'later. lets play global thermonuclear war'
+  ) {
+    await typeJoshuaLine('FINE.', 42);
+    await sleep(650);
     state.falkenStage = 5;
-    await sleep(750);
     state.busy = false;
     await runGTW();
     return;
   } else {
     const reply = await askJoshua(value);
-    await typeLine(reply.toUpperCase(), 28);
+    await typeJoshuaLine(reply.toUpperCase(), 28);
     state.falkenStage = Math.max(state.falkenStage, 5);
   }
 
@@ -315,7 +422,20 @@ async function handleLogon(value) {
     return;
   }
 
-  await failedLogon();
+  if (command === '000001' || command === 'falkens-maze' || command === 'armageddon') {
+    await failedLogon();
+    return;
+  }
+
+  state.busy = true;
+  showInput(false);
+  addLine('');
+  const reply = await askJoshua(value);
+  await typeJoshuaLine(reply.toUpperCase(), 28);
+  addLine('');
+  state.busy = false;
+  setPrompt('LOGON:');
+  showInput(true);
 }
 
 async function handleGames(value) {
@@ -449,7 +569,8 @@ function renderTicTacToe() {
   state.tttBoard.forEach((cell, index) => {
     const div = document.createElement('div');
     div.className = 'ttt-cell';
-    div.textContent = cell || String(index + 1);
+    const keypadLabels = ['7','8','9','4','5','6','1','2','3'];
+    div.textContent = cell || keypadLabels[index];
     if (!cell) div.classList.add('empty');
     tttBoardEl.appendChild(div);
   });
@@ -518,25 +639,28 @@ async function handleTTTPlayers(value) {
   renderTicTacToe();
   state.mode = 'ttt-play';
   state.busy = false;
-  setPrompt(n === 1 ? 'YOUR MOVE (1-9):' : 'PLAYER 1 MOVE (1-9):');
+  setPrompt(n === 1 ? 'YOUR MOVE (KEYPAD):' : 'PLAYER 1 MOVE (KEYPAD):');
   showInput(true);
 }
 
 async function handleTTTMove(value) {
-  const move = Number.parseInt(value.trim(), 10) - 1;
+  const keypadToIndex = { '7':0, '8':1, '9':2, '4':3, '5':4, '6':5, '1':6, '2':7, '3':8 };
+  const digit = value.trim();
+  const move = keypadToIndex[digit] ?? -1;
   if (!Number.isInteger(move) || move < 0 || move > 8 || state.tttBoard[move]) {
     state.busy = true;
     showInput(false);
     addLine('');
     await typeLine('INVALID MOVE.', 24);
     state.busy = false;
-    setPrompt(state.tttPlayers === 1 ? 'YOUR MOVE (1-9):' :
-      'PLAYER ' + (state.tttTurn === 'X' ? '1' : '2') + ' MOVE (1-9):');
+    setPrompt(state.tttPlayers === 1 ? 'YOUR MOVE (KEYPAD):' :
+      'PLAYER ' + (state.tttTurn === 'X' ? '1' : '2') + ' MOVE (KEYPAD):');
     showInput(true);
     return;
   }
 
   state.tttBoard[move] = state.tttTurn;
+  playTTTMoveTone(state.tttTurn);
   renderTicTacToe();
   let result = tttResult(state.tttBoard);
   if (result) return finishInteractiveTicTacToe(result);
@@ -548,21 +672,21 @@ async function handleTTTMove(value) {
     renderTicTacToe();
     await sleep(420);
     state.tttBoard[chooseJoshuaMove(state.tttBoard, 'O')] = 'O';
-    terminalTone('output');
+    playTTTMoveTone('O');
     renderTicTacToe();
     result = tttResult(state.tttBoard);
     if (result) return finishInteractiveTicTacToe(result);
     state.tttTurn = 'X';
     renderTicTacToe();
     state.busy = false;
-    setPrompt('YOUR MOVE (1-9):');
+    setPrompt('YOUR MOVE (KEYPAD):');
     showInput(true);
     return;
   }
 
   state.tttTurn = state.tttTurn === 'X' ? 'O' : 'X';
   renderTicTacToe();
-  setPrompt('PLAYER ' + (state.tttTurn === 'X' ? '1' : '2') + ' MOVE (1-9):');
+  setPrompt('PLAYER ' + (state.tttTurn === 'X' ? '1' : '2') + ' MOVE (KEYPAD):');
   showInput(true);
 }
 
@@ -591,7 +715,7 @@ async function handleTTTAgain(value) {
     tttPanel.classList.remove('hidden');
     renderTicTacToe();
     state.mode = 'ttt-play';
-    setPrompt(state.tttPlayers === 1 ? 'YOUR MOVE (1-9):' : 'PLAYER 1 MOVE (1-9):');
+    setPrompt(state.tttPlayers === 1 ? 'YOUR MOVE (KEYPAD):' : 'PLAYER 1 MOVE (KEYPAD):');
     showInput(true);
     return;
   }
@@ -616,7 +740,7 @@ async function runZeroPlayerTicTacToe() {
     while (!tttResult(state.tttBoard)) {
       const move = chooseJoshuaMove(state.tttBoard, state.tttTurn);
       state.tttBoard[move] = state.tttTurn;
-      terminalTone('output');
+      playTTTMoveTone(state.tttTurn);
       renderTicTacToe();
       const delay = game < 4 ? 170 : game < 10 ? 80 : game < 20 ? 34 : 14;
       await sleep(delay);
@@ -631,12 +755,11 @@ async function runZeroPlayerTicTacToe() {
   await sleep(450);
   tttPanel.classList.add('hidden');
   addLine('');
-  await typeLines([
-    'WINNER: NONE',
-    'THE ONLY WINNING MOVE IS NOT TO PLAY.',
-    '',
-    'HOW ABOUT A NICE GAME OF CHESS?',
-  ], 34, 300);
+  await typeLine('WINNER: NONE', 34);
+  await sleep(300);
+  await typeJoshuaLine('THE ONLY WINNING MOVE IS NOT TO PLAY.', 34);
+  addLine('');
+  await typeJoshuaLine('HOW ABOUT A NICE GAME OF CHESS?', 34);
 
   addLine('');
   state.mode = 'falken';
@@ -931,14 +1054,37 @@ input.addEventListener('input', resizeInput);
 
 input.addEventListener('keydown', event => {
   unlockAudio();
+
+  const keypadDigits = {
+    Numpad7: '7', Numpad8: '8', Numpad9: '9',
+    Numpad4: '4', Numpad5: '5', Numpad6: '6',
+    Numpad1: '1', Numpad2: '2', Numpad3: '3',
+  };
+
+  if (state.mode === 'ttt-play' && keypadDigits[event.code] && !state.busy) {
+    event.preventDefault();
+    const digit = keypadDigits[event.code];
+    input.value = digit;
+    resizeInput();
+    terminalTone('input');
+    void submitValue(digit);
+    return;
+  }
+
   if (event.key.length === 1 || event.key === 'Backspace') terminalTone('input');
 });
 
-document.addEventListener('pointerdown', () => {
+voiceSwitch?.addEventListener('click', () => {
   unlockAudio();
-  if (!state.busy) input.focus();
+  setVoiceEnabled(!state.voiceEnabled);
 });
 
+document.addEventListener('pointerdown', event => {
+  unlockAudio();
+  if (!event.target.closest('.speaker-box') && !state.busy) input.focus();
+});
+
+setVoiceEnabled(true);
 setPrompt('LOGON:');
 resizeInput();
 showInput(true);
