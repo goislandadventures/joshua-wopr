@@ -1379,13 +1379,15 @@ input.addEventListener('keydown', async event => {
   }
 });
 
-voiceSwitch?.addEventListener('click', async () => {
-  await unlockAudio();
+voiceSwitch?.addEventListener('click', () => {
+  void unlockAudio();
   setVoiceEnabled(!state.voiceEnabled);
 
-  // The speaker switch controls spoken JOSHUA audio only.
-  // Always hand keyboard control straight back to the terminal.
+  // Voice toggling must never capture or disable terminal input.
   if (!state.busy) {
+    input.disabled = false;
+    form.classList.remove('hidden');
+    resizeInput();
     requestAnimationFrame(() => input.focus());
   }
 });
