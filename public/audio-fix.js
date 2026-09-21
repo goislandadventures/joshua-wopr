@@ -69,6 +69,7 @@
     for (const char of text) {
       line.textContent += char;
       terminalTone();
+      if (typeof scrollTerminalBottom === 'function') scrollTerminalBottom();
       await sleep((speed * 1.16) + 4 + Math.random() * 10);
     }
     return line;
