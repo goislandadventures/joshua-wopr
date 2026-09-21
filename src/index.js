@@ -137,19 +137,26 @@ export default {
           voice: 'onyx',
           input: text,
           instructions: JOSHUA_VOICE_INSTRUCTIONS,
-          response_format: 'wav',
+          response_format: 'mp3',
           speed: 0.82,
         }),
       });
 
       if (!upstream.ok || !upstream.body) {
-        return json({ error: 'Voice generation failed', status: upstream.status }, 502);
+        const data = await upstream.json().catch(() => null);
+        return json({
+          error: 'Voice generation failed',
+          status: upstream.status,
+          code: data?.error?.code || null,
+          type: data?.error?.type || null,
+          detail: typeof data?.error?.message === 'string' ? data.error.message.slice(0, 240) : null,
+        }, 502);
       }
 
       return new Response(upstream.body, {
         status: 200,
         headers: {
-          'content-type': 'audio/wav',
+          'content-type': 'audio/mpeg',
           'cache-control': 'no-store',
           'x-ai-generated-voice': 'true',
         },
