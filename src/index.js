@@ -178,6 +178,55 @@ export default {
       return json({ text });
     }
 
+    if (url.pathname === '/api/movie-sound-play') {
+      if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
+
+      const id = Number(url.searchParams.get('id'));
+      if (!Number.isInteger(id) || !JOSHUA_MOVIE_SOUND_IDS.has(id)) {
+        return json({ error: 'Unknown movie sound' }, 404);
+      }
+
+      try {
+        const boardResponse = await fetch(
+          `https://www.101soundboards.com/api/v1/boards/${JOSHUA_MOVIE_BOARD_ID}`,
+          {
+            headers: {
+              'user-agent': 'Mozilla/5.0',
+              'accept': 'application/json,text/plain,*/*',
+            },
+            redirect: 'follow',
+          }
+        );
+
+        if (!boardResponse.ok) {
+          return json({ error: 'Soundboard metadata unavailable', status: boardResponse.status }, 502);
+        }
+
+        const board = await boardResponse.json().catch(() => null);
+        const sounds = Array.isArray(board?.sounds)
+          ? board.sounds
+          : Array.isArray(board?.data?.sounds)
+            ? board.data.sounds
+            : [];
+
+        const sound = sounds.find(item => Number(item?.id) === id);
+        const candidate = sound?.sound_file_url || sound?.download_url;
+
+        if (typeof candidate !== 'string' || !candidate) {
+          return json({ error: 'Signed sound URL unavailable', sound_id: id }, 502);
+        }
+
+        const signedUrl = new URL(candidate, 'https://www.101soundboards.com').toString();
+        return Response.redirect(signedUrl, 302);
+      } catch (error) {
+        return json({
+          error: 'Soundboard playback redirect failed',
+          sound_id: id,
+          detail: typeof error?.message === 'string' ? error.message.slice(0, 180) : null,
+        }, 502);
+      }
+    }
+
     if (url.pathname === '/api/movie-sound-url') {
       if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
 
