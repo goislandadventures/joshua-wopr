@@ -237,6 +237,10 @@
     if (voiceStateEl) voiceStateEl.textContent = 'CHECKING';
 
     try {
+      if (typeof window.__joshuaWaitForMovieAudio === 'function') {
+        await window.__joshuaWaitForMovieAudio();
+      }
+      if (!state.voiceEnabled) return;
       await playConcatenative('READY');
       if (!state.voiceEnabled) return;
 
