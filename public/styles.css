@@ -446,3 +446,37 @@ button, input { font: inherit; }
   .toggle-slot { width: 27px; }
   .toggle-lever { transform: translateX(10px); }
 }
+
+
+.glass.connecting {
+  animation: crtWake .95s steps(2, end);
+}
+
+.boot-cursor {
+  width: 1ch;
+  min-height: 1em;
+  text-shadow:
+    0 0 3px rgba(138,210,255,.95),
+    0 0 10px rgba(138,210,255,.55);
+}
+
+@keyframes crtWake {
+  0% {
+    filter: brightness(.20) contrast(1.8);
+  }
+  18% {
+    filter: brightness(1.55) contrast(1.18);
+  }
+  31% {
+    filter: brightness(.58) contrast(1.45);
+  }
+  48% {
+    filter: brightness(1.18) contrast(1.12);
+  }
+  67% {
+    filter: brightness(.86) contrast(1.20);
+  }
+  100% {
+    filter: brightness(1) contrast(1);
+  }
+}
