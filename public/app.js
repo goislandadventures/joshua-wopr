@@ -962,7 +962,7 @@ async function runZeroPlayerTicTacToe() {
   addLine('');
   await typeLine('WINNER: NONE', 34);
   await sleep(300);
-  await typeJoshuaLine('THE ONLY WINNING MOVE IS NOT TO PLAY.', 34);
+  await typeJoshuaLine('STRANGE GAME.\nTHE ONLY WINNING MOVE IS NOT TO PLAY.', 34);
   addLine('');
   await typeJoshuaLine('HOW ABOUT A NICE GAME OF CHESS?', 34);
 
