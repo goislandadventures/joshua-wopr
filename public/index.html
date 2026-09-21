@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#020603" />
+  <title>JOSHUA // WOPR</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="console-shell" aria-label="JOSHUA terminal simulator">
+    <section class="console-frame">
+      <div class="console-bezel">
+        <header class="statusbar">
+          <span>WOPR // JOSHUA</span>
+          <span id="status">SYSTEM READY</span>
+        </header>
+
+        <div class="crt" id="crt">
+          <div class="scanlines" aria-hidden="true"></div>
+          <div class="glow" aria-hidden="true"></div>
+
+          <section class="display">
+            <div id="terminal" class="terminal" role="log" aria-live="polite"></div>
+
+            <section id="sim-panel" class="sim-panel hidden" aria-label="Global Thermonuclear War simulation">
+              <div class="sim-header">
+                <span>GLOBAL THERMONUCLEAR WAR</span>
+                <span id="sim-round">SIMULATION 000</span>
+              </div>
+              <div class="map" aria-hidden="true">
+                <svg viewBox="0 0 1000 460" preserveAspectRatio="none">
+                  <g class="grid">
+                    <path d="M0 92H1000M0 184H1000M0 276H1000M0 368H1000" />
+                    <path d="M125 0V460M250 0V460M375 0V460M500 0V460M625 0V460M750 0V460M875 0V460" />
+                  </g>
+                  <g class="continents">
+                    <path d="M94 124l48-53 87-21 72 16 24 35-19 27-55 9-34 37-45 3-41-19z" />
+                    <path d="M273 191l32 20 29 69-16 70-39 50-21-66 10-76-24-42z" />
+                    <path d="M500 112l52-48 93 3 44 31 67-12 91 32 55 58-31 29-78-7-42 26-50-12-44 18-50-26-55 9-35-38-54-13z" />
+                    <path d="M586 217l54 22 36 58-11 85-54 23-36-64 10-64-24-29z" />
+                    <path d="M811 312l57-15 58 31-16 44-79 8-40-31z" />
+                  </g>
+                  <g id="trajectories" class="trajectories"></g>
+                  <g id="impacts" class="impacts"></g>
+                </svg>
+              </div>
+              <div class="sim-stats">
+                <span>SCENARIO <b id="scenario">NORTH / SOUTH</b></span>
+                <span>OUTCOME <b id="outcome">CALCULATING</b></span>
+                <span>STABILITY <b id="stability">--</b></span>
+              </div>
+            </section>
+
+            <form id="command-form" class="commandline" autocomplete="off">
+              <span class="prompt">&gt;</span>
+              <input id="command" aria-label="Command" spellcheck="false" autocapitalize="off" autocomplete="off" autofocus />
+              <span class="cursor" aria-hidden="true"></span>
+            </form>
+          </section>
+        </div>
+
+        <footer class="controls">
+          <button id="list-games" type="button">LIST GAMES</button>
+          <button id="greet" type="button">GREETINGS</button>
+          <button id="gtw" type="button">GTW</button>
+          <button id="clear" type="button">CLEAR</button>
+          <button id="sound" type="button" aria-pressed="true">SOUND ON</button>
+        </footer>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
