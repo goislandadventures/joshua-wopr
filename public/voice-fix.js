@@ -102,7 +102,15 @@
       window.__joshuaVoiceStatus = { ok: false, error: message };
 
       setVoiceEnabled(false);
-      if (voiceStateEl) voiceStateEl.textContent = 'VOICE ERROR';
+      if (voiceStateEl) {
+        let label = 'VOICE ERROR';
+        if (/credit_balance_exhausted/i.test(message)) label = 'NO API CREDIT';
+        else if (/insufficient_quota|spend_limit|usage_limit/i.test(message)) label = 'API LIMIT';
+        else if (/401|authentication|invalid_api_key/i.test(message)) label = 'KEY ERROR';
+        else if (/429|rate_limit/i.test(message)) label = 'RATE LIMIT';
+        voiceStateEl.textContent = label;
+        voiceSwitch?.setAttribute('title', message);
+      }
     } finally {
       verificationInFlight = false;
     }
