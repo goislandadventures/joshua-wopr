@@ -69,7 +69,7 @@ async function unlockAudio() {
     }
 
     if (!state.audioContext || state.audioContext.state === 'closed') {
-      state.audioContext = new AudioCtx();
+      state.audioContext = new AudioCtx({ latencyHint: 'interactive' });
     }
 
     if (state.audioContext.state === 'suspended') {
@@ -84,67 +84,87 @@ async function unlockAudio() {
   }
 }
 
-async function terminalTone(kind = 'output') {
-  const ready = await unlockAudio();
-  if (!ready || !state.audioContext) return;
+function terminalTone() {
+  const ctx = state.audioContext;
+  if (!ctx) return;
+
+  if (ctx.state === 'suspended') {
+    void ctx.resume();
+    return;
+  }
+
+  if (ctx.state !== 'running') return;
 
   try {
-    const ctx = state.audioContext;
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
 
     osc.type = 'square';
-    osc.frequency.setValueAtTime(kind === 'input' ? 1110 : 930, now);
-    osc.frequency.exponentialRampToValueAtTime(kind === 'input' ? 880 : 720, now + 0.018);
+    osc.frequency.setValueAtTime(865, now);
+    osc.frequency.exponentialRampToValueAtTime(735, now + 0.012);
 
     filter.type = 'bandpass';
-    filter.frequency.value = 1250;
-    filter.Q.value = 1.1;
+    filter.frequency.value = 1050;
+    filter.Q.value = 1.25;
 
-    gain.gain.setValueAtTime(kind === 'input' ? 0.017 : 0.024, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.024);
+    gain.gain.setValueAtTime(0.030, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.020);
 
     osc.connect(filter);
     filter.connect(gain);
     gain.connect(ctx.destination);
     osc.start(now);
-    osc.stop(now + 0.026);
+    osc.stop(now + 0.022);
   } catch (_) {}
 }
 
-async function playTTTMoveTone(mark) {
-  const ready = await unlockAudio();
-  if (!ready || !state.audioContext) return;
+function playTTTMoveTone(mark) {
+  const ctx = state.audioContext;
+  if (!ctx) return;
+
+  if (ctx.state === 'suspended') {
+    void ctx.resume();
+    return;
+  }
+
+  if (ctx.state !== 'running') return;
 
   try {
-    const ctx = state.audioContext;
-    const base = mark === 'X' ? [920, 1120] : [520, 410];
-    const start = ctx.currentTime;
-    base.forEach((freq, index) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
-      const t = start + index * 0.075;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
 
-      osc.type = mark === 'X' ? 'square' : 'triangle';
-      osc.frequency.setValueAtTime(freq, t);
-      osc.frequency.exponentialRampToValueAtTime(Math.max(120, freq * 0.82), t + 0.045);
-
+    if (mark === 'X') {
+      // Short, higher electronic "beep".
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(1040, now);
+      osc.frequency.exponentialRampToValueAtTime(900, now + 0.070);
       filter.type = 'bandpass';
-      filter.frequency.value = mark === 'X' ? 1150 : 620;
-      filter.Q.value = 1.4;
+      filter.frequency.value = 1100;
+      filter.Q.value = 2.1;
+      gain.gain.setValueAtTime(0.070, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.090);
+      osc.stop(now + 0.095);
+    } else {
+      // Lower, rounder electronic "boop".
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(390, now + 0.105);
+      filter.type = 'lowpass';
+      filter.frequency.value = 760;
+      filter.Q.value = 0.8;
+      gain.gain.setValueAtTime(0.085, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.125);
+      osc.stop(now + 0.130);
+    }
 
-      gain.gain.setValueAtTime(mark === 'X' ? 0.040 : 0.052, t);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.058);
-
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.062);
-    });
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
   } catch (_) {}
 }
 
@@ -243,7 +263,7 @@ async function typeLine(text = '', speed = 28, className = '') {
   const line = addLine('', className);
   for (const char of text) {
     line.textContent += char;
-    if (char !== ' ' && char !== '\t') await terminalTone('output');
+    if (char !== ' ' && char !== '\t') terminalTone();
     await sleep(speed + Math.random() * 12);
   }
   return line;
@@ -677,7 +697,7 @@ async function handleTTTMove(value) {
   }
 
   state.tttBoard[move] = state.tttTurn;
-  void playTTTMoveTone(state.tttTurn);
+  playTTTMoveTone(state.tttTurn);
   renderTicTacToe();
   let result = tttResult(state.tttBoard);
   if (result) return finishInteractiveTicTacToe(result);
@@ -689,7 +709,7 @@ async function handleTTTMove(value) {
     renderTicTacToe();
     await sleep(420);
     state.tttBoard[chooseJoshuaMove(state.tttBoard, 'O')] = 'O';
-    void playTTTMoveTone('O');
+    playTTTMoveTone('O');
     renderTicTacToe();
     result = tttResult(state.tttBoard);
     if (result) return finishInteractiveTicTacToe(result);
@@ -757,7 +777,7 @@ async function runZeroPlayerTicTacToe() {
     while (!tttResult(state.tttBoard)) {
       const move = chooseJoshuaMove(state.tttBoard, state.tttTurn);
       state.tttBoard[move] = state.tttTurn;
-      void playTTTMoveTone(state.tttTurn);
+      playTTTMoveTone(state.tttTurn);
       renderTicTacToe();
       const delay = game < 4 ? 170 : game < 10 ? 80 : game < 20 ? 34 : 14;
       await sleep(delay);
@@ -1083,17 +1103,19 @@ input.addEventListener('keydown', event => {
     const digit = keypadDigits[event.code];
     input.value = digit;
     resizeInput();
-    void terminalTone('input');
     void submitValue(digit);
-    return;
   }
-
-  if (event.key.length === 1 || event.key === 'Backspace') void terminalTone('input');
 });
 
-voiceSwitch?.addEventListener('click', () => {
-  void unlockAudio();
+voiceSwitch?.addEventListener('click', async () => {
+  await unlockAudio();
   setVoiceEnabled(!state.voiceEnabled);
+
+  // The speaker switch controls spoken JOSHUA audio only.
+  // Always hand keyboard control straight back to the terminal.
+  if (!state.busy) {
+    requestAnimationFrame(() => input.focus());
+  }
 });
 
 document.addEventListener('pointerdown', event => {
