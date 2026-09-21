@@ -769,14 +769,13 @@ button, input { font: inherit; }
   .input-row.mobile-busy {
     display: flex !important;
     pointer-events: none;
+    visibility: hidden;
   }
 
-  .input-row.mobile-busy #command {
-    opacity: .01;
-  }
-
+  .input-row.mobile-busy #command,
+  .input-row.mobile-busy .prompt,
   .input-row.mobile-busy .block-cursor {
-    opacity: .34;
+    opacity: 0;
   }
 
   #command {
