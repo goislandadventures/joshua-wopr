@@ -47,6 +47,12 @@ function json(data, status = 200) {
   });
 }
 
+const JOSHUA_MOVIE_BOARD_ID = 26218;
+const JOSHUA_MOVIE_SOUND_IDS = new Set([
+  259742, 259744, 259743, 259740, 259738, 259736,
+  259734, 259735, 259737, 259741, 259739,
+]);
+
 function extractText(data) {
   if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
   const chunks = [];
@@ -118,6 +124,73 @@ export default {
       const text = extractText(data);
       if (!text) return json({ error: 'Empty model response' }, 502);
       return json({ text });
+    }
+
+    if (url.pathname === '/api/movie-sound') {
+      if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
+
+      const id = Number(url.searchParams.get('id'));
+      if (!Number.isInteger(id) || !JOSHUA_MOVIE_SOUND_IDS.has(id)) {
+        return json({ error: 'Unknown movie sound' }, 404);
+      }
+
+      try {
+        const boardResponse = await fetch(
+          `https://www.101soundboards.com/api/v1/boards/${JOSHUA_MOVIE_BOARD_ID}`,
+          {
+            headers: {
+              'user-agent': 'Mozilla/5.0 (compatible; JOSHUA-WOPR/1.0)',
+              'accept': 'application/json,text/plain,*/*',
+            },
+          }
+        );
+
+        if (!boardResponse.ok) {
+          return json({ error: 'Soundboard metadata unavailable', status: boardResponse.status }, 502);
+        }
+
+        const board = await boardResponse.json();
+        const sounds = Array.isArray(board?.sounds)
+          ? board.sounds
+          : Array.isArray(board?.data?.sounds)
+            ? board.data.sounds
+            : [];
+
+        const sound = sounds.find(item => Number(item?.id) === id);
+        const relativeUrl = sound?.sound_file_url;
+
+        if (typeof relativeUrl !== 'string' || !relativeUrl.startsWith('/storage/board_sounds_rendered/')) {
+          return json({ error: 'Sound URL unavailable' }, 502);
+        }
+
+        const audioUrl = new URL(relativeUrl, 'https://www.101soundboards.com').toString();
+        const audioResponse = await fetch(audioUrl, {
+          headers: {
+            'user-agent': 'Mozilla/5.0 (compatible; JOSHUA-WOPR/1.0)',
+            'referer': 'https://www.101soundboards.com/',
+            'accept': 'audio/mpeg,audio/*;q=0.9,*/*;q=0.1',
+          },
+        });
+
+        if (!audioResponse.ok || !audioResponse.body) {
+          return json({ error: 'Movie audio unavailable', status: audioResponse.status }, 502);
+        }
+
+        return new Response(audioResponse.body, {
+          status: 200,
+          headers: {
+            'content-type': audioResponse.headers.get('content-type') || 'audio/mpeg',
+            'cache-control': 'public, max-age=1800',
+            'x-joshua-audio-source': '101soundboards',
+            'x-joshua-sound-id': String(id),
+          },
+        });
+      } catch (error) {
+        return json({
+          error: 'Movie sound proxy failed',
+          detail: typeof error?.message === 'string' ? error.message.slice(0, 180) : null,
+        }, 502);
+      }
     }
 
     if (url.pathname === '/api/voice') {
