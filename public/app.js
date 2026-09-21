@@ -327,7 +327,7 @@ function stopJoshuaVoice() {
 
 function setVoiceEnabled(enabled) {
   state.voiceEnabled = Boolean(enabled);
-  voiceSwitch?.setAttribute('aria-pressed', String(state.voiceEnabled));
+  voiceSwitch?.setAttribute('aria-checked', String(state.voiceEnabled));
   voiceSwitch?.setAttribute('aria-label', state.voiceEnabled ? 'Turn JOSHUA voice off' : 'Turn JOSHUA voice on');
   if (voiceStateEl) voiceStateEl.textContent = state.voiceEnabled ? 'VOICE ON' : 'VOICE OFF';
   if (!state.voiceEnabled) stopJoshuaVoice();
@@ -1373,8 +1373,21 @@ async function submitValue(value) {
 form.addEventListener('submit', async event => {
   event.preventDefault();
   void unlockAudio();
+
   const value = input.value;
   if (!value.trim()) return;
+
+  const command = normalize(value);
+  const loginMode = state.mode === 'logon' || state.mode === 'session-logoff';
+
+  // Arm the movie-audio element only when the submitted login is actually JOSHUA.
+  // Invalid logins never prime, preload, or fetch a movie clip.
+  if (loginMode && command === 'joshua') {
+    try {
+      window.__joshuaArmMovieAudioForLogin?.();
+    } catch (_) {}
+  }
+
   await submitValue(value);
 });
 
