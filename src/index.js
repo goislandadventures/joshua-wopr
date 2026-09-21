@@ -20,10 +20,12 @@ Behavior:
 `.trim();
 
 const JOSHUA_VOICE_INSTRUCTIONS = `
-Use a low male register with very calm, flat, deliberate delivery.
-Keep emotional range narrow, timing slightly mechanical, and pauses precise.
-Sound like a fictional early-1980s computer voice heard through a small speaker.
-Use clean intelligibility with subtle synthetic cadence and minimal warmth.
+Use a low male register with extremely calm, flat, deliberate delivery.
+Keep the pitch range narrow and avoid conversational sing-song intonation.
+Speak slowly, with clean separation between words and slightly extended pauses at punctuation.
+Keep emotion almost neutral: analytical, detached, patient, and faintly curious.
+Use a subtle early-digital cadence: precise consonants, steady vowels, minimal breathiness, minimal warmth, and no dramatic acting.
+Imagine the speech being rendered by a fictional early-1980s computer and then heard through a small communications speaker.
 Do not imitate or impersonate any identifiable actor, performer, or real person.
 `.trim();
 
@@ -135,8 +137,8 @@ export default {
           voice: 'onyx',
           input: text,
           instructions: JOSHUA_VOICE_INSTRUCTIONS,
-          response_format: 'mp3',
-          speed: 0.92,
+          response_format: 'wav',
+          speed: 0.82,
         }),
       });
 
@@ -147,7 +149,7 @@ export default {
       return new Response(upstream.body, {
         status: 200,
         headers: {
-          'content-type': 'audio/mpeg',
+          'content-type': 'audio/wav',
           'cache-control': 'no-store',
           'x-ai-generated-voice': 'true',
         },
