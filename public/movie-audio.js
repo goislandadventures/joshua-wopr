@@ -56,21 +56,21 @@
     currentMovieAudio = audio;
     window.__joshuaMovieAudioActive = true;
 
+    let finishMovie;
     currentMovieDone = new Promise(resolve => {
-      const finish = () => {
+      finishMovie = () => {
         if (currentMovieAudio === audio) currentMovieAudio = null;
         window.__joshuaMovieAudioActive = false;
         resolve();
       };
 
-      audio.addEventListener('ended', finish, { once: true });
-      audio.addEventListener('error', finish, { once: true });
-      audio.addEventListener('abort', finish, { once: true });
+      audio.addEventListener('ended', finishMovie, { once: true });
+      audio.addEventListener('error', finishMovie, { once: true });
+      audio.addEventListener('abort', finishMovie, { once: true });
     });
 
     audio.play().catch(() => {
-      if (currentMovieAudio === audio) currentMovieAudio = null;
-      window.__joshuaMovieAudioActive = false;
+      if (typeof finishMovie === 'function') finishMovie();
     });
 
     return currentMovieDone;
