@@ -20,12 +20,14 @@ Behavior:
 `.trim();
 
 const JOSHUA_VOICE_INSTRUCTIONS = `
-Use a low male register with extremely calm, flat, deliberate delivery.
-Keep the pitch range narrow and avoid conversational sing-song intonation.
-Speak slowly, with clean separation between words and slightly extended pauses at punctuation.
-Keep emotion almost neutral: analytical, detached, patient, and faintly curious.
-Use a subtle early-digital cadence: precise consonants, steady vowels, minimal breathiness, minimal warmth, and no dramatic acting.
-Imagine the speech being rendered by a fictional early-1980s computer and then heard through a small communications speaker.
+Use a small, youthful, gender-neutral synthetic computer voice.
+The register should be noticeably higher and lighter than a typical adult male voice.
+Do not sound deep, gravelly, breathy, sinister, dramatic, warm, or emotionally human.
+Keep pitch movement narrow and delivery extremely flat, precise, literal, and calm.
+Separate words cleanly with slightly mechanical timing and deliberate pauses.
+Consonants should be crisp; vowels should be steady and short.
+Imagine a 1983 speech synthesizer speaking through a compact computer speaker: limited bandwidth, clean electronic articulation, almost no chest resonance, and very little natural prosody.
+The result should feel machine-generated first and human-like second.
 Do not imitate or impersonate any identifiable actor, performer, or real person.
 `.trim();
 
@@ -144,20 +146,20 @@ export default {
 
       let attempt = await speechRequest({
         model: 'gpt-4o-mini-tts',
-        voice: 'onyx',
+        voice: 'shimmer',
         input: text,
         instructions: JOSHUA_VOICE_INSTRUCTIONS,
         response_format: 'mp3',
-        speed: 0.82,
+        speed: 0.70,
       });
 
       if (!attempt.response.ok && (attempt.response.status === 400 || attempt.response.status === 404)) {
         attempt = await speechRequest({
           model: 'tts-1',
-          voice: 'onyx',
+          voice: 'shimmer',
           input: text,
           response_format: 'mp3',
-          speed: 0.82,
+          speed: 0.70,
         });
       }
 
