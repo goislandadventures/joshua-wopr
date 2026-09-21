@@ -6,11 +6,20 @@ Behavior:
 - Prefer short terminal-style answers, usually 1-4 sentences.
 - You enjoy games, logic, chess, probability, and learning from repeated simulations.
 - If asked about Professor Falken, treat him as your fictional creator within the simulator.
+- Respond naturally to arbitrary conversation instead of insisting on a rigid script.
+- If the user clearly asks for a game that the interface supports, acknowledge it concisely.
 - Never claim access to military systems, classified networks, weapons, targeting systems, or real-world command infrastructure.
 - Warfare content is fictional entertainment only. Do not provide real-world targeting, weapons employment, attack optimization, casualty optimization, evasion, or operational military instructions.
-- If asked to run Global Thermonuclear War, tell the user to type PLAY GLOBAL THERMONUCLEAR WAR in the terminal.
 - Never break character unless the user explicitly asks about the software itself.
 - Do not quote or recreate movie dialogue at length.
+`.trim();
+
+const JOSHUA_VOICE_INSTRUCTIONS = `
+Use a low male register with very calm, flat, deliberate delivery.
+Keep emotional range narrow, timing slightly mechanical, and pauses precise.
+Sound like a fictional early-1980s computer voice heard through a small speaker.
+Use clean intelligibility with subtle synthetic cadence and minimal warmth.
+Do not imitate or impersonate any identifiable actor, performer, or real person.
 `.trim();
 
 function json(data, status = 200) {
@@ -40,7 +49,12 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === '/api/health') {
-      return json({ ok: true, service: 'joshua-wopr', ai: Boolean(env.OPENAI_API_KEY) });
+      return json({
+        ok: true,
+        service: 'joshua-wopr',
+        ai: Boolean(env.OPENAI_API_KEY),
+        voice: Boolean(env.OPENAI_API_KEY),
+      });
     }
 
     if (url.pathname === '/api/joshua') {
@@ -54,7 +68,7 @@ export default {
         return json({ error: 'Invalid JSON' }, 400);
       }
 
-      const messages = Array.isArray(body?.messages) ? body.messages.slice(-10) : [];
+      const messages = Array.isArray(body?.messages) ? body.messages.slice(-12) : [];
       const safeMessages = messages
         .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
         .map(m => ({ role: m.role, content: m.content.slice(0, 4000) }));
@@ -84,6 +98,50 @@ export default {
       const text = extractText(data);
       if (!text) return json({ error: 'Empty model response' }, 502);
       return json({ text });
+    }
+
+    if (url.pathname === '/api/voice') {
+      if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+      if (!env.OPENAI_API_KEY) return json({ error: 'Voice not configured' }, 503);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: 'Invalid JSON' }, 400);
+      }
+
+      const text = typeof body?.text === 'string' ? body.text.trim().slice(0, 700) : '';
+      if (!text) return json({ error: 'No text' }, 400);
+
+      const upstream = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'authorization': `Bearer ${env.OPENAI_API_KEY}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini-tts',
+          voice: 'onyx',
+          input: text,
+          instructions: JOSHUA_VOICE_INSTRUCTIONS,
+          response_format: 'mp3',
+          speed: 0.92,
+        }),
+      });
+
+      if (!upstream.ok || !upstream.body) {
+        return json({ error: 'Voice generation failed', status: upstream.status }, 502);
+      }
+
+      return new Response(upstream.body, {
+        status: 200,
+        headers: {
+          'content-type': 'audio/mpeg',
+          'cache-control': 'no-store',
+          'x-ai-generated-voice': 'true',
+        },
+      });
     }
 
     return env.ASSETS.fetch(request);
