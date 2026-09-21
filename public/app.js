@@ -260,6 +260,10 @@ function commitInput(value) {
 }
 
 async function typeLine(text = '', speed = 28, className = '') {
+  // Every machine-rendered line explicitly wakes the dedicated FX audio channel.
+  // This is independent of JOSHUA's spoken-voice switch.
+  await unlockAudio();
+
   const line = addLine('', className);
   for (const char of text) {
     line.textContent += char;
@@ -1089,8 +1093,8 @@ form.addEventListener('submit', async event => {
 
 input.addEventListener('input', resizeInput);
 
-input.addEventListener('keydown', event => {
-  void unlockAudio();
+input.addEventListener('keydown', async event => {
+  await unlockAudio();
 
   const keypadDigits = {
     Numpad7: '7', Numpad8: '8', Numpad9: '9',
