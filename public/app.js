@@ -202,54 +202,54 @@ function playConnectChirp(step = 0) {
   } catch (_) {}
 }
 
-function playTTTMoveTone(mark) {
-  const ctx = state.audioContext;
-  if (!ctx) return;
+function playTTTMoveTone(mark, intensity = 1) {
+  const play = async () => {
+    await unlockAudio();
+    const ctx = state.audioContext;
+    if (!ctx || ctx.state !== 'running') return;
 
-  if (ctx.state === 'suspended') {
-    void ctx.resume();
-    return;
-  }
-
-  if (ctx.state !== 'running') return;
-
-  try {
     const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(Math.min(0.20, 0.11 + intensity * 0.025), now);
+    master.connect(ctx.destination);
+
+    const makeBurst = (startOffset, freq1, freq2, duration, type, filterFreq) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq1, now + startOffset);
+      osc.frequency.exponentialRampToValueAtTime(freq2, now + startOffset + duration);
+
+      filter.type = 'bandpass';
+      filter.frequency.value = filterFreq;
+      filter.Q.value = 1.7;
+
+      gain.gain.setValueAtTime(0.0001, now + startOffset);
+      gain.gain.linearRampToValueAtTime(1, now + startOffset + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(master);
+      osc.start(now + startOffset);
+      osc.stop(now + startOffset + duration + 0.01);
+    };
 
     if (mark === 'X') {
-      // Short, higher electronic "beep".
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(1040, now);
-      osc.frequency.exponentialRampToValueAtTime(900, now + 0.070);
-      filter.type = 'bandpass';
-      filter.frequency.value = 1100;
-      filter.Q.value = 2.1;
-      gain.gain.setValueAtTime(0.070, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.090);
-      osc.stop(now + 0.095);
+      // Bright, clipped two-part electronic "beep-beep".
+      makeBurst(0.000, 980, 860, 0.055, 'square', 1050);
+      makeBurst(0.048, 820, 720, 0.060, 'square', 900);
     } else {
-      // Lower, rounder electronic "boop".
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(520, now);
-      osc.frequency.exponentialRampToValueAtTime(390, now + 0.105);
-      filter.type = 'lowpass';
-      filter.frequency.value = 760;
-      filter.Q.value = 0.8;
-      gain.gain.setValueAtTime(0.085, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.125);
-      osc.stop(now + 0.130);
+      // Lower rounded "boop" with a short answering tail.
+      makeBurst(0.000, 590, 455, 0.085, 'triangle', 650);
+      makeBurst(0.060, 430, 360, 0.075, 'sine', 470);
     }
+  };
 
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-  } catch (_) {}
+  void play();
 }
-
 async function fetchVoiceUrl(text) {
   const key = text.trim().toUpperCase();
   if (!key) return null;
@@ -914,9 +914,10 @@ async function runZeroPlayerTicTacToe() {
     while (!tttResult(state.tttBoard)) {
       const move = chooseJoshuaMove(state.tttBoard, state.tttTurn);
       state.tttBoard[move] = state.tttTurn;
-      playTTTMoveTone(state.tttTurn);
+      const intensity = game < 4 ? 0.7 : game < 10 ? 1.0 : game < 20 ? 1.35 : 1.75;
+      playTTTMoveTone(state.tttTurn, intensity);
       renderTicTacToe();
-      const delay = game < 4 ? 170 : game < 10 ? 80 : game < 20 ? 34 : 14;
+      const delay = game < 4 ? 190 : game < 10 ? 95 : game < 20 ? 44 : 20;
       await sleep(delay);
       state.tttTurn = state.tttTurn === 'X' ? 'O' : 'X';
     }
