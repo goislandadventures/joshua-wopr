@@ -598,12 +598,12 @@ async function helpGames() {
   showInput(false);
   addLine('');
   await typeLines([
-    'GAMES ARE MODELS AND SIMULATIONS',
-    'WITH TACTICAL OR STRATEGIC APPLICATIONS.',
+    "'GAMES' REFERS TO MODELS, SIMULATIONS AND GAMES",
+    'WHICH HAVE TACTICAL AND STRATEGIC APPLICATIONS.',
   ], 24, 85);
   addLine('');
-  state.mode = 'games';
-  setPrompt('');
+  state.mode = 'logon';
+  setPrompt('LOGON:');
   state.busy = false;
   showInput(true);
 }
@@ -726,6 +726,16 @@ async function handleFalken(value) {
 
 async function handleLogon(value) {
   const command = normalize(value);
+
+  if (command === 'help logon') {
+    await helpLogon();
+    return;
+  }
+
+  if (command === 'help games') {
+    await helpGames();
+    return;
+  }
 
   if (command === 'joshua') {
     await successfulLogon();
